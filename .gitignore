@@ -1,0 +1,54 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+
+# Executables
+*.exe
+*.out
+*.app
+
+*~
+*.obj
+*.dep
+*.exe
+*.pdb
+*.ilk
+.vs
+*.sln
+.debug
+TAGS
+build
+imgui.ini
+
+Makefile
+
+testing
+
+compile_commands.json
+.clangd
+
+.cache
+
+res/draw_cache
