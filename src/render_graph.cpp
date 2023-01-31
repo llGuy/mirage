@@ -1,11 +1,12 @@
 #include "render_graph.hpp"
 #include "vulkan/vulkan_core.h"
 
-render_graph::render_graph(VkCommandBuffer command_buffer) 
+render_graph::render_graph(VkCommandBuffer command_buffer, flags one_time) 
 : command_buffer_(command_buffer) {
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pInheritanceInfo = nullptr;
+    begin_info.flags = one_time ? VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     vkBeginCommandBuffer(command_buffer, &begin_info);
 }
 

@@ -43,6 +43,9 @@ extern struct render_context {
     VkCommandPool command_pool;
     VkDescriptorPool descriptor_pool;
     descriptor_set_layout_category layout_categories[descriptor_set_layout_category::category_count];
+
+    // Debug overlay
+    VkRenderPass imgui_render_pass;
 } *gctx;
 
 void init_render_context();
@@ -58,7 +61,7 @@ VkDescriptorSetLayout get_descriptor_set_layout(VkDescriptorType type, u32 count
 VkAccessFlags find_access_flags_for_stage(VkPipelineStageFlags stage);
 VkAccessFlags find_access_flags_for_layout(VkImageLayout layout);
 
-// Memory helpers
+// Helpers for memory management
 u32 find_memory_type(VkMemoryPropertyFlags properties, VkMemoryRequirements &memory_requirements);
 VkDeviceMemory allocate_buffer_memory(VkBuffer buffer, VkMemoryPropertyFlags properties);
 VkDeviceMemory allocate_image_memory(VkImage image, VkMemoryPropertyFlags properties, u32 *size);

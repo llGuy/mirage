@@ -9,19 +9,22 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_MBCS -DGLM_ENABLE_EXPERIMENTAL -Worde
 file(GLOB_RECURSE MIRAGE_SOURCES "src/*.cpp" "src/*.hpp")
 add_executable(mirage "${MIRAGE_SOURCES}")
 
-include_directories("${CMAKE_SOURCE_DIR}/dep/stb")
-include_directories("${CMAKE_SOURCE_DIR}/dep/glm")
-include_directories("${CMAKE_SOURCE_DIR}/dep/imgui/include")
-include_directories("${CMAKE_SOURCE_DIR}/dep/imgui-console/include")
+include_directories("${CMAKE_SOURCE_DIR}/ext/stb")
+include_directories("${CMAKE_SOURCE_DIR}/ext/glm")
+include_directories("${CMAKE_SOURCE_DIR}/ext/imgui/")
+include_directories("${CMAKE_SOURCE_DIR}/ext/imgui-console/include")
 
 find_package(Vulkan)
 
 if (Vulkan_FOUND)
     message(STATUS "Found Vulkan package in system ${Vulkan_LIBRARY}")
-    target_include_directories(mirage PUBLIC "${Vulkan_INCLUDE_DIRS}")
-    target_link_libraries(mirage PUBLIC "${Vulkan_LIBRARY}")
+    include_directories("${Vulkan_INCLUDE_DIRS}")
+    link_libraries("${Vulkan_LIBRARY}")
 endif()
 
-target_link_libraries(mirage PUBLIC "pthread" "glfw")
+file(GLOB_RECURSE IMGUI_SOURCES "ext/imgui/*.cpp" "ext/imgui/*.h")
+add_library(imgui "${IMGUI_SOURCES}")
+
+target_link_libraries(mirage PUBLIC "pthread" "glfw" "imgui")
 
 target_compile_definitions(mirage PUBLIC MIRAGE_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
