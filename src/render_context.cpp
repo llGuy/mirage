@@ -168,6 +168,8 @@ static void init_device_() {
             device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
             selected_physical_device = i;
 
+            gctx->max_push_constant_size = device_properties.limits.maxPushConstantsSize;
+
             // Get queue families
             u32 queue_family_count = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &queue_family_count, nullptr);
@@ -299,7 +301,8 @@ static void init_swapchain_() {
     swapchain_info.imageColorSpace = format.colorSpace;
     swapchain_info.imageExtent = surface_extent;
     swapchain_info.imageArrayLayers = 1;
-    swapchain_info.imageUsage = VK_IMAGE_USAGE_STORAGE_BIT;
+    swapchain_info.imageUsage = 
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
     swapchain_info.imageSharingMode = (gctx->graphics_family == gctx->present_family) ?
         VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT;

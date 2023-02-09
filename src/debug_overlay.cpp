@@ -8,6 +8,7 @@
 #include "debug_overlay.hpp"
 #include "render_context.hpp"
 
+#if 0
 static void imgui_callback_(VkResult result) {
     (void)result;
 }
@@ -115,3 +116,4 @@ void render_debug_overlay(render_graph &graph) {
 
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graph.cmdbuf());
 }
+#endif

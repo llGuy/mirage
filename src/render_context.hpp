@@ -46,6 +46,8 @@ extern struct render_context {
 
     // Debug overlay
     VkRenderPass imgui_render_pass;
+
+    uint32_t max_push_constant_size;
 } *gctx;
 
 void init_render_context();

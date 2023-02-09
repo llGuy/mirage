@@ -75,6 +75,12 @@ struct id_extracter {
     static inline int32_t id = -1;
 };
 
+struct uid_string {
+    const char *str;
+    size_t length;
+    uint32_t id;
+};
+
 template <uint32_t hash>
 inline uint32_t get_id(uint32_t &id_counter) {
     if (id_extracter<hash>::id == -1) {
@@ -88,5 +94,5 @@ inline uint32_t get_id(uint32_t &id_counter) {
  * simply create a macro like the one below but replace id_counter with
  * an int which is local to the system */
 #if 0
-#define str(x) (get_id<crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF>(id_counter))
+#define str(x) (uid_string{x, sizeof(x), get_id<crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF>(id_counter)})
 #endif
