@@ -1,4 +1,24 @@
+#include <string>
+#include "bump_alloc.h"
+#include "file.hpp"
+#include <filesystem>
 #include "render_graph.hpp"
+#include "render_context.hpp"
+#include "vulkan/vulkan_core.h"
+
+// Some dumb string helpers
+static std::string make_shader_src_path_(const char *path) {
+    std::string str_path = path;
+    str_path = std::string(MIRAGE_PROJECT_ROOT) +
+        (char)std::filesystem::path::preferred_separator +
+        std::string("res") + 
+        (char)std::filesystem::path::preferred_separator +
+        std::string("spv") + 
+        (char)std::filesystem::path::preferred_separator +
+        str_path +
+        ".comp.spv";
+    return str_path;
+}
 
 /************************* Render Pass ****************************/
 // TODO:
@@ -10,7 +30,10 @@ render_pass::render_pass(render_graph *, const uid_string &) {
 
 /************************* Compute Pass ***************************/
 compute_pass::compute_pass(render_graph *builder, const uid_string &uid) 
-: builder_(builder), uid_(uid) {
+: builder_(builder), uid_(uid),
+  push_constant_(nullptr),
+  push_constant_size_(0),
+  pipeline_(VK_NULL_HANDLE) {
 
 }
 
@@ -21,33 +44,33 @@ void compute_pass::set_source(const char *src_path) {
 void compute_pass::add_sampled_image(const uid_string &uid, const image_info &i) {
     uint32_t binding_id = bindings_.size();
 
-    binding b = { binding::type::sampled_image, uid.id };
+    binding b = { (uint32_t)bindings_.size(), binding::type::sampled_image, uid.id };
     bindings_.push_back(b);
 
     // Get image will allocate space for the image struct if it hasn't been created yet
     gpu_image &img = builder_->get_image_(uid.id);
-    img.add_usage_node(uid.id, binding_id);
+    img.add_usage_node(uid_.id, binding_id);
 }
 
 void compute_pass::add_storage_image(const uid_string &uid, const image_info &i) {
     uint32_t binding_id = bindings_.size();
 
-    binding b = { binding::type::storage_image, uid.id };
+    binding b = { (uint32_t)bindings_.size(), binding::type::storage_image, uid.id };
     bindings_.push_back(b);
 
     gpu_image &img = builder_->get_image_(uid.id);
-    img.add_usage_node(uid.id, binding_id);
+    img.add_usage_node(uid_.id, binding_id);
 }
 
 void compute_pass::add_storage_buffer(const uid_string &uid) {
-    binding b = { binding::type::storage_buffer, uid.id };
+    binding b = { (uint32_t)bindings_.size(), binding::type::storage_buffer, uid.id };
     bindings_.push_back(b);
 
     // Do the same for buffers (as we do for images)
 }
 
 void compute_pass::add_uniform_buffer(const uid_string &uid) {
-    binding b = { binding::type::uniform_buffer, uid.id };
+    binding b = { (uint32_t)bindings_.size(), binding::type::uniform_buffer, uid.id };
     bindings_.push_back(b);
 }
 
@@ -67,16 +90,144 @@ void compute_pass::dispatch(uint32_t count_x, uint32_t count_y, uint32_t count_z
     dispatch_params_.is_waves = false;
 }
 
-void compute_pass::dispatch_waves(uint32_t wave_x, uint32_t wave_y, uint32_t wave_z) {
+void compute_pass::dispatch_waves(uint32_t wave_x, uint32_t wave_y, uint32_t wave_z, const uid_string &s) {
     dispatch_params_.x = wave_x;
     dispatch_params_.y = wave_y;
     dispatch_params_.z = wave_z;
     dispatch_params_.is_waves = true;
+
+    // Works for images
+    dispatch_params_.binding_res = s.id;
 }
 
 void compute_pass::reset_() {
     // Should keep capacity the same to no reallocs after the first time adding the compute pass
     bindings_.clear();
+}
+
+void compute_pass::create_() {
+    VkPushConstantRange push_constant_range = {};
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = push_constant_size_;
+
+    // Pipeline layout TODO: Support descriptors with count>1
+    VkDescriptorSetLayout *layouts = stack_alloc(VkDescriptorSetLayout, bindings_.size());
+    for (u32 i = 0; i < bindings_.size(); ++i) {
+        layouts[i] = get_descriptor_set_layout(bindings_[i].get_descriptor_type(), 1);
+    }
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info = {};
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.setLayoutCount = bindings_.size();
+    pipeline_layout_info.pSetLayouts = layouts;
+
+    if (push_constant_size_) {
+        pipeline_layout_info.pushConstantRangeCount = 1;
+        pipeline_layout_info.pPushConstantRanges = &push_constant_range;
+    }
+
+    VK_CHECK(vkCreatePipelineLayout(gctx->device, &pipeline_layout_info, nullptr, &layout_));
+
+    // Shader stage
+    heap_array<u8> src_bytes = file(
+        make_shader_src_path_(src_path_), 
+        file_type_bin | file_type_in).read_binary();
+
+    VkShaderModule shader_module;
+    VkShaderModuleCreateInfo shader_info = {};
+    shader_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shader_info.codeSize = src_bytes.size();
+    shader_info.pCode = (u32 *)src_bytes.data();
+
+    VK_CHECK(vkCreateShaderModule(gctx->device, &shader_info, NULL, &shader_module));
+
+    VkPipelineShaderStageCreateInfo module_info = {};
+    module_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    module_info.pName = "main";
+    module_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    module_info.module = shader_module;
+
+    VkComputePipelineCreateInfo compute_pipeline_info = {};
+    compute_pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    compute_pipeline_info.stage = module_info;
+    compute_pipeline_info.layout = layout_;
+
+    VK_CHECK(vkCreateComputePipelines(gctx->device, VK_NULL_HANDLE, 1, &compute_pipeline_info, nullptr, &pipeline_));
+}
+
+// This also needs to issue all synchronization stuff that may be needed
+void compute_pass::issue_commands_(VkCommandBuffer cmdbuf) {
+    // Loop through all bindings (make sure images and buffers have proper barriers issued for them)
+    // This is a very rough estimate - TODO: Make sure to have exact number of image bindings
+    auto *img_barriers = bump_mem_alloc<VkImageMemoryBarrier>(bindings_.size());
+    auto *buf_barriers = bump_mem_alloc<VkBufferMemoryBarrier>(bindings_.size());
+
+    u32 img_barrier_count = 0, buf_barrier_count = 0;
+    
+    VkDescriptorSet *descriptor_sets = bump_mem_alloc<VkDescriptorSet>(bindings_.size());
+
+    int i = 0;
+    // Once all barriers have been issued, we can dispatch the pipeline!
+    for (auto b : bindings_) {
+        auto &res = builder_->get_resource_(b.rref);
+        switch (res.get_type()) {
+        case graph_resource::type::graph_image: {
+            auto &img = res.get_image();
+            VkImageMemoryBarrier barrier = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .image = img.get().image_,
+                .oldLayout = img.get().current_layout_,
+                .newLayout = b.get_image_layout(),
+                .srcAccessMask = img.get().current_access_,
+                .dstAccessMask = b.get_image_access(),
+                .subresourceRange.aspectMask = img.get().aspect_,
+                // TODO: Support non-hardcoded values for this
+                .subresourceRange.baseArrayLayer = 0,
+                .subresourceRange.baseMipLevel = 0,
+                .subresourceRange.layerCount = 1,
+                .subresourceRange.levelCount = 1
+            };
+
+            vkCmdPipelineBarrier(cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+            // Update image data
+            img.get().current_layout_ = b.get_image_layout();
+            img.get().current_access_ = b.get_image_access();
+            img.get().last_used_ = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+            descriptor_sets[i] = img.get().get_descriptor_set(b.utype);
+        } break;
+
+        case graph_resource::type::graph_buffer: {
+            ;
+        } break;
+
+        default:
+            break;
+        }
+
+        ++i;
+    }
+
+    vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+    vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, bindings_.size(), descriptor_sets, 0, nullptr);
+
+    if (push_constant_size_) {
+        vkCmdPushConstants(cmdbuf, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, push_constant_size_, push_constant_);
+    }
+
+    uint32_t gx = dispatch_params_.x, gy = dispatch_params_.y, gz = dispatch_params_.z;
+    if (dispatch_params_.is_waves) {
+        gpu_image &ref = builder_->get_image_(dispatch_params_.binding_res);
+
+        VkExtent3D extent = ref.get().extent_;
+        gx = (uint32_t)glm::ceil((float)extent.width / (float)gx);
+        gy = (uint32_t)glm::ceil((float)extent.height / (float)gy);
+        gz = (uint32_t)glm::ceil((float)extent.depth / (float)gz);
+    }
+
+    vkCmdDispatch(cmdbuf, gx, gy, gz);
 }
 
 
@@ -137,7 +288,14 @@ binding &graph_pass::get_binding(uint32_t idx) {
 gpu_image::gpu_image() 
 : head_node_{ invalid_graph_ref, invalid_graph_ref },
   tail_node_{ invalid_graph_ref, invalid_graph_ref },
-  usage_(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
+  image_(VK_NULL_HANDLE),
+  image_view_(VK_NULL_HANDLE),
+  image_memory_(VK_NULL_HANDLE),
+  current_layout_(VK_IMAGE_LAYOUT_UNDEFINED),
+  current_access_(0),
+  last_used_(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
+  usage_(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT),
+  descriptor_sets_{} {
 
 }
 
@@ -145,7 +303,14 @@ gpu_image::gpu_image(render_graph *builder)
 : head_node_{ invalid_graph_ref, invalid_graph_ref },
   tail_node_{ invalid_graph_ref, invalid_graph_ref },
   builder_(builder),
-  usage_(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
+  image_(VK_NULL_HANDLE),
+  image_view_(VK_NULL_HANDLE),
+  image_memory_(VK_NULL_HANDLE),
+  current_layout_(VK_IMAGE_LAYOUT_UNDEFINED),
+  current_access_(0),
+  last_used_(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT),
+  usage_(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT),
+  descriptor_sets_{} {
 
 }
 
@@ -161,7 +326,7 @@ void gpu_image::add_usage_node(graph_stage_ref stg, uint32_t binding_idx) {
     tail_node_.binding_idx = binding_idx;
 
     binding &tail = builder_->get_binding_(tail_node_.stage, tail_node_.binding_idx);
-    // Just make sure that if we traverse through this node, we don't try to keep going
+    // Just make sure that if we traverse through t=is node, we don't try to keep going
     tail.next.invalidate();
 
     if (head_node_.stage == invalid_graph_ref) {
@@ -204,12 +369,61 @@ void gpu_image::apply_action() {
         // If the descriptors were already created, no need to do anything for them
         create_descriptors(usage_);
     }
+
+    // action_ = action_flag::none;
 }
 
 // These may or may not match with the usage_ member - could be invoked
 // by another image (resource aliasing stuff)
 void gpu_image::create_descriptors(VkImageUsageFlags usage) {
+    VkImageUsageFlagBits bits[] = { VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_USAGE_STORAGE_BIT };
+    VkDescriptorType descriptor_types[] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE };
+    VkImageLayout expected_layouts[] = { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL };
 
+    for (int i = 0; i < sizeof(bits)/sizeof(bits[0]); ++i) {
+        if (usage & bits[i] && descriptor_sets_[i] == VK_NULL_HANDLE) {
+            VkDescriptorSetLayout layout = get_descriptor_set_layout(
+                descriptor_types[i], 1);
+
+            VkDescriptorSetAllocateInfo allocate_info = {};
+            allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocate_info.descriptorPool = gctx->descriptor_pool;
+            allocate_info.descriptorSetCount = 1;
+            allocate_info.pSetLayouts = &layout;
+
+            vkAllocateDescriptorSets(
+                gctx->device, &allocate_info, &descriptor_sets_[i]);
+
+            VkDescriptorImageInfo image_info = {};
+            VkWriteDescriptorSet write = {};
+
+            image_info.imageLayout = expected_layouts[i];
+            image_info.imageView = image_view_;
+            image_info.sampler = VK_NULL_HANDLE;
+
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = descriptor_sets_[i];
+            write.dstBinding = 0;
+            write.dstArrayElement = 0;
+            write.descriptorCount = 1;
+            write.descriptorType = descriptor_types[i];
+            write.pImageInfo = &image_info;
+
+            vkUpdateDescriptorSets(gctx->device, 1, &write, 0, nullptr);
+        }
+    }
+}
+
+VkDescriptorSet gpu_image::get_descriptor_set(binding::type t) {
+    return descriptor_sets_[t];
+}
+
+gpu_image &gpu_image::get() {
+    // Later, we can also add a to reference in the case of aliasing
+    if (action_ == action_flag::to_present)
+        return builder_->get_image_(reference_);
+    
+    return *this;
 }
 
 graph_resource::graph_resource()
@@ -230,13 +444,32 @@ graph_resource::graph_resource(const gpu_buffer &buf)
 
 
 /************************* Graph Builder **************************/
-render_graph::render_graph() {
+render_graph::render_graph() 
+: present_generator_(2) {
+
+}
+
+void render_graph::setup_swapchain(const swapchain_info &swapchain) {
     // Setup swapchain targets (we assume that there won't be more than 5 swapchain targets)
     swapchain_uids[0] = RES("swapchain-target-0");
     swapchain_uids[1] = RES("swapchain-target-1");
     swapchain_uids[2] = RES("swapchain-target-2");
     swapchain_uids[3] = RES("swapchain-target-3");
     swapchain_uids[4] = RES("swapchain-target-4");
+
+    for (int i = 0; i < 5; ++i) {
+        gpu_image &img = get_image_(swapchain_uids[i].id);
+        img.image_ = swapchain.images[i];
+        img.image_view_ = swapchain.image_views[i];
+        img.extent_ = { swapchain.extent.width, swapchain.extent.height, 1 };
+        img.aspect_ = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+
+    get_image_(swapchain_uids[0].id);
+    get_image_(swapchain_uids[1].id);
+    get_image_(swapchain_uids[2].id);
+    get_image_(swapchain_uids[3].id);
+    get_image_(swapchain_uids[4].id);
 }
 
 void render_graph::register_swapchain(const graph_swapchain_info &swp) {
@@ -272,17 +505,80 @@ compute_pass &render_graph::add_compute_pass(const uid_string &uid) {
 }
 
 void render_graph::begin() {
+    present_info_.is_active = false;
+
+    // Looping through resource IDs (ID of resources that were used in the frame)
+    for (auto r : used_resources_) {
+        resources_[r].was_used_ = false;
+
+        switch (resources_[r].get_type()) {
+        case graph_resource::type::graph_image: {
+            resources_[r].get_image().head_node_ = { invalid_graph_ref, invalid_graph_ref };
+            resources_[r].get_image().tail_node_ = { invalid_graph_ref, invalid_graph_ref };
+        } break;
+
+        default:
+            break;
+        }
+    }
+
+    for (auto stg : recorded_stages_) {
+        if (stg == graph_stage_ref_present) 
+            continue;
+
+        switch (passes_[stg].get_type()) {
+        case graph_pass::graph_compute_pass: {
+            compute_pass &cp = passes_[stg].get_compute_pass();
+            cp.bindings_.clear();
+        } break;
+
+        case graph_pass::graph_render_pass: {
+            // TODO:
+        } break;
+
+        default: break;
+        }
+    }
+
     recorded_stages_.clear();
+    used_resources_.clear();
+    recorded_stages_.clear();
+
     present_info_.is_active = false;
 }
 
-void render_graph::end() {
+void render_graph::end(cmdbuf_generator *generator) {
+    // Determine which generator to use
+    if (!generator) {
+        if (present_info_.is_active) {
+            generator = &present_generator_;
+        }
+        else {
+            // TODO: Single command use generator
+            assert(false);
+        }
+    }
+
+    // Generate the command buffer
+    cmdbuf_generator::cmdbuf_info info = generator->get_command_buffer();
+
+    swapchain_img_idx_ = info.swapchain_idx;
+
     // First traverse through all stages in order to figure out which resources to use
     for (auto stg : recorded_stages_) {
         if (stg == graph_stage_ref_present) {
             // Handle present case
             gpu_image &swapchain_target = get_image_(present_info_.to_present);
+
+            // This may override the action that was previously set from the looping through bindings
             swapchain_target.action_ = gpu_image::action_flag::to_present;
+
+            // Very unlikely that this will pass but here just in case we want to present
+            // a disk-loaded texture to the screen
+            if (!get_resource_(present_info_.to_present).was_used_) {
+                get_resource_(present_info_.to_present).was_used_ = true;
+                used_resources_.push_back(present_info_.to_present);
+            }
         }
         else {
             // Handle render pass / compute pass case
@@ -292,18 +588,105 @@ void render_graph::end() {
 
                 // Loop through each binding
                 for (auto &bind : cp.bindings_) {
+                    auto &res = get_resource_(bind.rref);
+                    switch (res.get_type()) {
+                    case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
+                    case graph_resource::type::graph_buffer: res.get_buffer().update_action(bind); break;
+                    default: break;
+                    }
 
+                    if (!res.was_used_) {
+                        res.was_used_ = true;
+                        used_resources_.push_back(bind.rref);
+                    }
                 }
             } break;
 
             case graph_pass::graph_render_pass: {
                 render_pass &rp = passes_[stg].get_render_pass();
+
+                // TODO All render pass related stuff
             } break;
 
             default: break;
             }
         }
     }
+
+    // Loop through all used resources
+    for (auto rref : used_resources_) {
+        graph_resource &res = resources_[rref];
+
+        switch (res.get_type()) {
+        case graph_resource::type::graph_image:
+            res.get_image().apply_action();
+            break;
+
+        case graph_resource::type::graph_buffer:
+            res.get_buffer().apply_action();
+            break;
+
+        default:
+            break;
+        }
+    }
+
+    VkPipelineStageFlags last_stage = 0;
+    
+    // Now loop through the passes and actually issue the commands!
+    for (auto stg : recorded_stages_) {
+        if (stg == graph_stage_ref_present) {
+            gpu_image &img = get_image_(present_info_.to_present);
+
+            // Handle present stage - transition image layout
+            VkImageMemoryBarrier barrier = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .image = img.get().image_,
+                .oldLayout = img.get().current_layout_,
+                .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .srcAccessMask = img.get().current_access_,
+                .dstAccessMask = 0,
+                .subresourceRange.aspectMask = img.get().aspect_,
+                .subresourceRange.baseArrayLayer = 0,
+                .subresourceRange.baseMipLevel = 0,
+                .subresourceRange.layerCount = 1,
+                .subresourceRange.levelCount = 1
+            };
+
+            vkCmdPipelineBarrier(info.cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+            // Update image data
+            img.get().current_layout_ = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            img.get().current_access_ = 0;
+            img.get().last_used_ = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        }
+        else {
+            // Handle compute / render passes
+            switch (passes_[stg].get_type()) {
+            case graph_pass::graph_compute_pass: {
+                last_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+                compute_pass &cp = passes_[stg].get_compute_pass();
+
+                if (cp.pipeline_ == VK_NULL_HANDLE) {
+                    // Actually initialize the compute pipeline
+                    cp.create_();
+                }
+
+                // Issue the commands
+                cp.issue_commands_(info.cmdbuf);
+            } break;
+
+            case graph_pass::graph_render_pass: {
+                last_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            } break;
+
+            default: break;
+            }
+        }
+    }
+
+    generator->submit_command_buffer(info, last_stage);
 }
 
 void render_graph::present(const uid_string &res_uid) {
@@ -311,7 +694,77 @@ void render_graph::present(const uid_string &res_uid) {
     present_info_.is_active = true;
 
     gpu_image &img = get_image_(res_uid.id);
+    img.reference_ = graph_stage_ref_present;
     img.add_usage_node(graph_stage_ref_present, 0);
 
     recorded_stages_.push_back(graph_stage_ref_present);
+}
+
+// Cmdbuf generators...
+present_cmdbuf_generator::present_cmdbuf_generator(u32 frames_in_flight)
+: max_frames_in_flight_(frames_in_flight), 
+  image_ready_semaphores_(frames_in_flight),
+  render_finished_semaphores_(frames_in_flight),
+  fences_(frames_in_flight),
+  command_buffers_(gctx->images.size()),
+  current_frame_(0) {
+    VkSemaphoreCreateInfo semaphore_info = {};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fence_info = {};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (u32 i = 0; i < max_frames_in_flight_; ++i) {
+        vkCreateSemaphore(gctx->device, &semaphore_info, nullptr, &image_ready_semaphores_[i]);
+        vkCreateSemaphore(gctx->device, &semaphore_info, nullptr, &render_finished_semaphores_[i]);
+        vkCreateFence(gctx->device, &fence_info, nullptr, &fences_[i]);
+    }
+
+    // Command buffers
+    VkCommandBufferAllocateInfo command_buffer_info = {};
+    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_info.commandBufferCount = command_buffers_.size();
+    command_buffer_info.commandPool = gctx->command_pool;
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    vkAllocateCommandBuffers(gctx->device, &command_buffer_info, command_buffers_.data());
+}
+
+cmdbuf_generator::cmdbuf_info present_cmdbuf_generator::get_command_buffer() {
+    u32 swapchain_image_idx = acquire_next_swapchain_image(image_ready_semaphores_[current_frame_]);
+    vkWaitForFences(gctx->device, 1, &fences_[current_frame_], true, UINT64_MAX);
+    vkResetFences(gctx->device, 1, &fences_[current_frame_]);
+
+    VkCommandBuffer current_command_buffer = command_buffers_[swapchain_image_idx];
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+    };
+
+    vkBeginCommandBuffer(current_command_buffer, &begin_info);
+
+    return { 
+        .swapchain_idx = swapchain_image_idx,
+        .cmdbuf = current_command_buffer,
+        .frame_idx = current_frame_ 
+    };
+}
+
+void present_cmdbuf_generator::submit_command_buffer(const cmdbuf_generator::cmdbuf_info &cmd, VkPipelineStageFlags stage) {
+    vkEndCommandBuffer(cmd.cmdbuf);
+
+    VkSubmitInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    info.commandBufferCount = 1;
+    info.pCommandBuffers = &cmd.cmdbuf;
+    info.waitSemaphoreCount = 1;
+    info.pWaitSemaphores = &image_ready_semaphores_[current_frame_];
+    info.signalSemaphoreCount = 1;
+    info.pSignalSemaphores = &render_finished_semaphores_[current_frame_];
+    info.pWaitDstStageMask = &stage;
+    vkQueueSubmit(gctx->graphics_queue, 1, &info, fences_[current_frame_]);
+
+    // Present to screen
+    present_swapchain_image(render_finished_semaphores_[current_frame_], cmd.swapchain_idx);
+    current_frame_ = (current_frame_ + 1) % max_frames_in_flight_;
 }

@@ -1,7 +1,9 @@
 #pragma once
 
 #include <vector>
+#include <assert.h>
 #include "string.hpp"
+#include "heap_array.hpp"
 #include <vulkan/vulkan.h>
 
 // ID of a resource
@@ -33,9 +35,11 @@ struct resource_usage_node {
 
 struct binding {
     enum type {
-        sampled_image, storage_image, storage_buffer, uniform_buffer, none
+        sampled_image, storage_image, max_image, storage_buffer, uniform_buffer, max_buffer, none
     };
 
+    // Index of this binding
+    uint32_t idx;
     type utype;
     graph_resource_ref rref;
 
@@ -43,7 +47,43 @@ struct binding {
     // Member is written to by the resource which is pointed to by the binding
     resource_usage_node next;
 
-    // void 
+    VkDescriptorType get_descriptor_type() {
+        switch (utype) {
+        case sampled_image: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        case storage_image: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        case storage_buffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        case uniform_buffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        default: return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+        }
+    }
+
+    VkImageLayout get_image_layout() {
+        assert(utype < type::max_image);
+
+        switch(utype) {
+        case type::sampled_image:
+            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case type::storage_image:
+            return VK_IMAGE_LAYOUT_GENERAL;
+        default:
+            assert(false);
+            return VK_IMAGE_LAYOUT_MAX_ENUM;
+        }
+    }
+
+    VkAccessFlags get_image_access() {
+        assert(utype < type::max_image);
+
+        switch(utype) {
+        case type::sampled_image:
+            return VK_ACCESS_SHADER_READ_BIT;
+        case type::storage_image:
+            return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        default:
+            assert(false);
+            return (VkAccessFlags)0;
+        }
+    }
 };
 
 struct image_info {
@@ -98,13 +138,19 @@ public:
 
     // Configures the dispatch with given dimensions
     void dispatch(uint32_t count_x, uint32_t count_y, uint32_t count_z);
-    // Configures the dispatch with the size of each wave
-    void dispatch_waves(uint32_t wave_x, uint32_t wave_y, uint32_t wave_z);
+    // Configures the dispatch with the size of each wave - specify which image to get resolution from
+    void dispatch_waves(uint32_t wave_x, uint32_t wave_y, uint32_t wave_z, const uid_string &);
     // TODO: Support indirect
 
 private:
     // Gets called everytime you call add_compute_pass from render_graph
     void reset_();
+
+    // Actually creates the compute pass
+    void create_();
+
+    // Issue the commands to command buffer
+    void issue_commands_(VkCommandBuffer cmdbuf);
 
     // void add_image(binding::type type);
 
@@ -123,6 +169,8 @@ private:
     // Dispatch parameters
     struct {
         uint32_t x, y, z;
+        // Index of the binding for which we will bind our resolution with
+        uint32_t binding_res;
         bool is_waves;
     } dispatch_params_;
 
@@ -209,10 +257,13 @@ public:
 
     // TODO
     void update_action(const binding &b) {}
+    void apply_action() {}
 
 private:
     resource_usage_node head_node_;
     resource_usage_node tail_node_;
+
+    // Keep track of last stage this was used in
 
     render_graph *builder_;
 };
@@ -237,6 +288,11 @@ public:
     // don't do anything for that kind of descriptor).
     void create_descriptors(VkImageUsageFlags usage);
 
+    VkDescriptorSet get_descriptor_set(binding::type t);
+
+    // This is necessary in the case of indirection (there is always at most one level of indirection)
+    gpu_image &get();
+
 private:
     resource_usage_node head_node_;
     resource_usage_node tail_node_;
@@ -253,11 +309,21 @@ private:
     VkImageView image_view_;
     VkDeviceMemory image_memory_;
 
+    VkExtent3D extent_;
+
+    VkImageAspectFlags aspect_;
+
     VkImageUsageFlags usage_;
 
-    VkDescriptorSet descriptor_sets[];
+    VkDescriptorSet descriptor_sets_[binding::type::none];
+
+    // Keep track of current layout / usage stage
+    VkImageLayout current_layout_;
+    VkAccessFlags current_access_;
+    VkPipelineStageFlags last_used_;
 
     friend class render_graph;
+    friend class compute_pass;
 };
 
 class graph_resource {
@@ -311,11 +377,14 @@ public:
 
 private:
     type type_;
+    bool was_used_;
 
     union {
         gpu_buffer buf_;
         gpu_image img_;
     };
+
+    friend class render_graph;
 };
 
 
@@ -327,9 +396,59 @@ struct graph_swapchain_info {
     VkImageView *image_views;
 };
 
+// This may be something that takes care of presenting to the screen
+// Can create any custom generator you want if you want to custom set synch primitives
+class cmdbuf_generator {
+public:
+    struct cmdbuf_info {
+        uint32_t swapchain_idx;
+        uint32_t frame_idx;
+        VkCommandBuffer cmdbuf;
+    };
+
+    virtual cmdbuf_info get_command_buffer() = 0;
+    virtual void submit_command_buffer(const cmdbuf_info &info, VkPipelineStageFlags stage) = 0;
+};
+
+class present_cmdbuf_generator : public cmdbuf_generator {
+public:
+    present_cmdbuf_generator(u32 frames_in_flight);
+
+    // TODO: Add input and output synchornization semaphores and fences
+    cmdbuf_info get_command_buffer() override;
+    void submit_command_buffer(const cmdbuf_info &info, VkPipelineStageFlags stage) override;
+
+private:
+    heap_array<VkSemaphore> image_ready_semaphores_;
+    heap_array<VkSemaphore> render_finished_semaphores_;
+    heap_array<VkFence> fences_;
+    heap_array<VkCommandBuffer> command_buffers_;
+
+    u32 current_frame_;
+    u32 max_frames_in_flight_;
+};
+
+class single_cmdbuf_generator : public cmdbuf_generator {
+public:
+    cmdbuf_info get_command_buffer() override;
+    void submit_command_buffer(const cmdbuf_info &info, VkPipelineStageFlags stage) override;
+
+private:
+
+};
+
 class render_graph {
 public:
     render_graph();
+
+    struct swapchain_info {
+        u32 swapchain_image_count;
+        VkImage *images;
+        VkImageView *image_views;
+        VkExtent2D extent;
+    };
+
+    void setup_swapchain(const swapchain_info &swapchain);
 
     // Register swapchain targets in the resources array
     void register_swapchain(const graph_swapchain_info &swp);
@@ -340,8 +459,12 @@ public:
 
     // Start recording a set of passes / commands
     void begin();
-    // End the commands and submit
-    void end();
+
+    // End the commands and submit - determines whether or not to create a command buffer on the fly
+    // If there is a present command, will use the present_cmdbuf_generator
+    // If not, will use single_cmdbuf_generator,
+    // But can specify custom generator too
+    void end(cmdbuf_generator *generator = nullptr);
 
     // Make sure that this image is what gets presented to the screen
     void present(const uid_string &);
@@ -365,6 +488,10 @@ private:
     }
 
     inline gpu_image &get_image_(graph_resource_ref id) {
+        if (id == graph_stage_ref_present) {
+            return get_image_(get_current_swapchain_ref_());
+        }
+
         auto &res = get_resource_(id);
         if (res.get_type() == graph_resource::type::none)
             new (&res) graph_resource(gpu_image(this));
@@ -379,7 +506,7 @@ private:
     }
 
     graph_resource_ref get_current_swapchain_ref_() {
-        return swapchain_uids[swapchain_img_idx].id;
+        return swapchain_uids[swapchain_img_idx_].id;
     }
 
 public:
@@ -387,9 +514,10 @@ public:
     static inline uint32_t stg_name_id_counter = 0;
 
 private:
-    static inline uid_string swapchain_uids[5] = {};
+    static constexpr uint32_t swapchain_img_max_count = 5;
+    static inline uid_string swapchain_uids[swapchain_img_max_count] = {};
 
-    uint32_t swapchain_img_idx;
+    uint32_t swapchain_img_idx_;
 
     // All existing passes that could be used
     std::vector<graph_pass> passes_;
@@ -397,6 +525,7 @@ private:
     std::vector<graph_resource> resources_;
 
     std::vector<graph_stage_ref> recorded_stages_;
+    std::vector<graph_resource_ref> used_resources_;
 
     struct present_info {
         graph_resource_ref to_present;
@@ -405,6 +534,9 @@ private:
 
         binding b;
     } present_info_;
+
+    // Default cmdbuf generators
+    present_cmdbuf_generator present_generator_;
 
     friend class compute_pass;
     friend class render_pass;
