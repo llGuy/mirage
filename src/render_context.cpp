@@ -28,16 +28,18 @@ static void init_instance_() {
 #elif defined(__ANDROID__)
         "VK_KHR_android_surface"
 #elif defined(__APPLE__)
-            "VK_EXT_metal_surface",
+        "VK_EXT_metal_surface",
 #else
         "VK_KHR_xcb_surface",
 #endif
-
         "VK_KHR_surface",
+
 #ifndef NDEBUG
         "VK_EXT_debug_utils",
-        "VK_EXT_debug_report"
+        "VK_EXT_debug_report",
 #endif
+
+        "VK_KHR_portability_enumeration"
     };
 
     VkApplicationInfo app_info = {};
@@ -52,7 +54,7 @@ static void init_instance_() {
     VkInstanceCreateInfo instance_info = {};
     instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pNext = nullptr;
-    instance_info.flags = 0;
+    instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     instance_info.pApplicationInfo = &app_info;
     instance_info.enabledLayerCount = layers.size();
     instance_info.ppEnabledLayerNames = layers.data();
@@ -142,6 +144,9 @@ struct queue_families {
 static void init_device_() {
     std::vector<const char *> extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
+        VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,
+        VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
         VK_EXT_DEBUG_MARKER_EXTENSION_NAME,
 #if defined (__APPLE__)
         "VK_KHR_portability_subset",
@@ -229,9 +234,14 @@ static void init_device_() {
         unique_family_infos[i] = queue_info;
     }
 
+    VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_feature = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+        .dynamicRendering = VK_TRUE,
+    };
+
     VkDeviceCreateInfo device_info = {};
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_info.pNext = NULL;
+    device_info.pNext = &dynamic_rendering_feature;
     device_info.flags = 0;
     device_info.queueCreateInfoCount = unique_queue_family_count;
     device_info.pQueueCreateInfos = unique_family_infos.data();

@@ -2,12 +2,22 @@
 #include "bump_alloc.h"
 #include "file.hpp"
 #include <filesystem>
+#include "log.hpp"
 #include "render_graph.hpp"
 #include "render_context.hpp"
 #include "vulkan/vulkan_core.h"
 
 // Some dumb string helpers
-static std::string make_shader_src_path_(const char *path) {
+std::string make_shader_src_path(const char *path, VkShaderStageFlags stage) {
+    const char *extension = "";
+
+    switch (stage) {
+    case VK_SHADER_STAGE_COMPUTE_BIT: extension = ".comp.spv"; break;
+    case VK_SHADER_STAGE_VERTEX_BIT: extension = ".vert.spv"; break;
+    case VK_SHADER_STAGE_FRAGMENT_BIT: extension = ".frag.spv"; break;
+    default: break;
+    }
+
     std::string str_path = path;
     str_path = std::string(MIRAGE_PROJECT_ROOT) +
         (char)std::filesystem::path::preferred_separator +
@@ -16,14 +26,170 @@ static std::string make_shader_src_path_(const char *path) {
         std::string("spv") + 
         (char)std::filesystem::path::preferred_separator +
         str_path +
-        ".comp.spv";
+        extension;
+
     return str_path;
 }
 
 /************************* Render Pass ****************************/
 // TODO:
-render_pass::render_pass(render_graph *, const uid_string &) {
+render_pass::render_pass(render_graph *builder, const uid_string &uid) 
+: builder_(builder), uid_(uid), depth_index_(-1) {
 
+}
+
+void render_pass::add_color_attachment(const uid_string &uid, clear_color color, const image_info &info) {
+    uint32_t binding_id = bindings_.size();
+
+    binding b = { (uint32_t)bindings_.size(), binding::type::color_attachment, uid.id, color };
+    bindings_.push_back(b);
+
+    // Get image will allocate space for the image struct if it hasn't been created yet
+    gpu_image &img = builder_->get_image_(uid.id);
+    img.add_usage_node(uid_.id, binding_id);
+}
+
+void render_pass::add_depth_attachment(const uid_string &uid, clear_color color, const image_info &info) {
+    uint32_t binding_id = bindings_.size();
+
+    binding b = { (uint32_t)bindings_.size(), binding::type::depth_attachment, uid.id, color };
+    bindings_.push_back(b);
+
+    // Get image will allocate space for the image struct if it hasn't been created yet
+    gpu_image &img = builder_->get_image_(uid.id);
+    img.add_usage_node(uid_.id, binding_id);
+}
+
+void render_pass::set_render_area(VkRect2D rect) {
+    rect_ = rect;
+}
+
+void render_pass::reset_() {
+    bindings_.clear();
+    depth_index_ = -1;
+    rect_ = {};
+}
+
+void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
+    uint32_t color_attachment_count = (uint32_t)(bindings_.size() - (depth_index_ == -1 ? 0 : 1));
+
+    auto *color_attachments = bump_mem_alloc<VkRenderingAttachmentInfo>(color_attachment_count);
+    auto *depth_attachment = (depth_index_ == -1 ? nullptr : bump_mem_alloc<VkRenderingAttachmentInfo>());
+
+    auto *img_barriers = bump_mem_alloc<VkImageMemoryBarrier>(bindings_.size());
+
+    for (int b_idx = 0, c_idx = 0; b_idx < bindings_.size(); ++b_idx) {
+        if (b_idx == depth_index_) {
+            binding &b = bindings_[b_idx];
+
+            gpu_image &img = builder_->get_image_(b.rref);
+
+            VkClearDepthStencilValue clear_value;
+            clear_value.depth = b.clear.r;
+
+            depth_attachment->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            depth_attachment->clearValue.depthStencil = clear_value;
+            depth_attachment->imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depth_attachment->imageView = img.get().image_view_;
+            depth_attachment->loadOp = (b.clear.r < 0.0f ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR);
+            depth_attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+            // Issue memory barrier
+            VkImageMemoryBarrier barrier = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .image = img.get().image_,
+                .oldLayout = img.get().current_layout_,
+                .newLayout = b.get_image_layout(),
+                .srcAccessMask = img.get().current_access_,
+                .dstAccessMask = b.get_image_access(),
+                .subresourceRange.aspectMask = img.get().aspect_,
+                // TODO: Support non-hardcoded values for this
+                .subresourceRange.baseArrayLayer = 0,
+                .subresourceRange.baseMipLevel = 0,
+                .subresourceRange.layerCount = 1,
+                .subresourceRange.levelCount = 1
+            };
+
+            vkCmdPipelineBarrier(cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+            // Update image data
+            img.get().current_layout_ = b.get_image_layout();
+            img.get().current_access_ = b.get_image_access();
+            img.get().last_used_ = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        }
+        else {
+            binding &b = bindings_[b_idx];
+
+            gpu_image &img = builder_->get_image_(b.rref);
+
+            VkClearColorValue clear_value;
+            clear_value.float32[0] = b.clear.r;
+            clear_value.float32[1] = b.clear.g;
+            clear_value.float32[2] = b.clear.b;
+            clear_value.float32[3] = b.clear.a;
+
+            color_attachments[c_idx].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            color_attachments[c_idx].clearValue.color = clear_value;
+            color_attachments[c_idx].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color_attachments[c_idx].imageView = img.get().image_view_;
+            color_attachments[c_idx].loadOp = (b.clear.r < 0.0f ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR);
+            color_attachments[c_idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+            // Issue memory barrier
+            VkImageMemoryBarrier barrier = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .image = img.get().image_,
+                .oldLayout = img.get().current_layout_,
+                .newLayout = b.get_image_layout(),
+                .srcAccessMask = img.get().current_access_,
+                .dstAccessMask = b.get_image_access(),
+                .subresourceRange.aspectMask = img.get().aspect_,
+                // TODO: Support non-hardcoded values for this
+                .subresourceRange.baseArrayLayer = 0,
+                .subresourceRange.baseMipLevel = 0,
+                .subresourceRange.layerCount = 1,
+                .subresourceRange.levelCount = 1
+            };
+
+            vkCmdPipelineBarrier(cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+            // Update image data
+            img.get().current_layout_ = b.get_image_layout();
+            img.get().current_access_ = b.get_image_access();
+            img.get().last_used_ = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+            ++c_idx;
+        }
+    }
+
+    if (rect_.extent.width == 0) {
+        gpu_image &img = builder_->get_image_(bindings_[0].rref);
+
+        rect_.offset = {};
+        rect_.extent = { img.get().extent_.width, img.get().extent_.height };
+    }
+
+    VkRenderingInfo rendering_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea = rect_,
+        // TODO: Don't hardcode 1 layer count
+        .layerCount = 1,
+        .colorAttachmentCount = color_attachment_count,
+        .pColorAttachments = color_attachments,
+        .pDepthAttachment = depth_attachment
+    };
+
+    vkCmdBeginRendering(cmdbuf, &rendering_info);
+
+    // Issue draw calls
+    draw_commands_proc_(cmdbuf, rect_, draw_commands_aux_);
+
+    vkCmdEndRendering(cmdbuf);
+}
+
+void render_pass::draw_commands_(draw_commands_proc draw_proc, void *aux) {
+    draw_commands_proc_ = draw_proc;
+    draw_commands_aux_ = aux;
 }
 
 
@@ -41,7 +207,7 @@ void compute_pass::set_source(const char *src_path) {
     src_path_ = src_path;
 }
 
-void compute_pass::add_sampled_image(const uid_string &uid, const image_info &i) {
+void compute_pass::add_sampled_image(const uid_string &uid) {
     uint32_t binding_id = bindings_.size();
 
     binding b = { (uint32_t)bindings_.size(), binding::type::sampled_image, uid.id };
@@ -131,7 +297,7 @@ void compute_pass::create_() {
 
     // Shader stage
     heap_array<u8> src_bytes = file(
-        make_shader_src_path_(src_path_), 
+        make_shader_src_path(src_path_, VK_SHADER_STAGE_COMPUTE_BIT), 
         file_type_bin | file_type_in).read_binary();
 
     VkShaderModule shader_module;
@@ -271,9 +437,7 @@ binding &graph_pass::get_binding(uint32_t idx) {
     } break;
 
     case type::graph_render_pass: {
-        // return rp.bindings[idx];
-        assert(false);
-        return cp_.bindings_[idx];
+        return rp_.bindings_[idx];
     } break;
 
     default: 
@@ -348,6 +512,8 @@ void gpu_image::update_action(const binding &b) {
     switch (b.utype) {
     case binding::type::sampled_image: usage_ |= VK_IMAGE_USAGE_SAMPLED_BIT; break;
     case binding::type::storage_image: usage_ |= VK_IMAGE_USAGE_STORAGE_BIT; break;
+    case binding::type::color_attachment: usage_ |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; break;
+    case binding::type::depth_attachment: usage_ |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT; break;
     default: break;
     }
 }
@@ -356,6 +522,7 @@ void gpu_image::apply_action() {
     // We need to create this image
     if (action_ == action_flag::to_create) {
         // TODO: actual image creation
+        create_();
 
         create_descriptors(usage_);
     }
@@ -426,6 +593,68 @@ gpu_image &gpu_image::get() {
     return *this;
 }
 
+void gpu_image::configure(const image_info &info) {
+    // This means that we inherit swapchain resolution
+    if (info.extent.width == 0 && info.extent.height == 0 && info.extent.depth == 0) {
+        gpu_image &swapchain_img = builder_->get_image_(render_graph::swapchain_uids[0].id);
+        extent_ = swapchain_img.extent_;
+    }
+
+    aspect_ = info.is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    if (info.format == VK_FORMAT_MAX_ENUM) {
+        if (aspect_ == VK_IMAGE_ASPECT_DEPTH_BIT) {
+            // Get default depth format
+            log_error("Need to setup default depth format!!!");
+            assert(false);
+        }
+        else {
+            format_ = gctx->swapchain_format;
+        }
+    }
+    else {
+        format_ = info.format;
+    }
+
+    // TODO: Layer counts and stuff...
+}
+
+void gpu_image::create_() {
+    VkImageCreateInfo image_create_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .flags = 0,
+        .arrayLayers = 1,
+        .extent = extent_,
+        .format = format_,
+        .imageType = extent_.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .mipLevels = 1,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = usage_,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    vkCreateImage(gctx->device, &image_create_info, nullptr, &image_);
+
+    u32 allocated_size = 0;
+    image_memory_ = allocate_image_memory(image_, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &allocated_size);
+
+    VkImageViewCreateInfo view_create_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image_,
+        .viewType = extent_.depth > 1 ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D,
+        .format = format_,
+        .subresourceRange.aspectMask = aspect_,
+        .subresourceRange.baseMipLevel = 0,
+        .subresourceRange.levelCount = 1,
+        .subresourceRange.baseArrayLayer = 0,
+        .subresourceRange.layerCount = 1
+    };
+
+    vkCreateImageView(gctx->device, &view_create_info, nullptr, &image_view_);
+}
+
 graph_resource::graph_resource()
 : type_(graph_resource::type::none) {
 
@@ -463,6 +692,7 @@ void render_graph::setup_swapchain(const swapchain_info &swapchain) {
         img.image_view_ = swapchain.image_views[i];
         img.extent_ = { swapchain.extent.width, swapchain.extent.height, 1 };
         img.aspect_ = VK_IMAGE_ASPECT_COLOR_BIT;
+        img.format_ = gctx->swapchain_format;
     }
 
     get_image_(swapchain_uids[0].id);
@@ -533,7 +763,9 @@ void render_graph::begin() {
         } break;
 
         case graph_pass::graph_render_pass: {
-            // TODO:
+            render_pass &rp = passes_[stg].get_render_pass();
+            rp.bindings_.clear();
+            rp.depth_index_ = -1;
         } break;
 
         default: break;
@@ -605,7 +837,19 @@ void render_graph::end(cmdbuf_generator *generator) {
             case graph_pass::graph_render_pass: {
                 render_pass &rp = passes_[stg].get_render_pass();
 
-                // TODO All render pass related stuff
+                // Loop through each binding
+                for (auto &bind : rp.bindings_) {
+                    auto &res = get_resource_(bind.rref);
+                    switch (res.get_type()) {
+                    case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
+                    default: assert(false); break;
+                    }
+
+                    if (!res.was_used_) {
+                        res.was_used_ = true;
+                        used_resources_.push_back(bind.rref);
+                    }
+                }
             } break;
 
             default: break;
@@ -679,6 +923,10 @@ void render_graph::end(cmdbuf_generator *generator) {
 
             case graph_pass::graph_render_pass: {
                 last_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+                render_pass &rp = passes_[stg].get_render_pass();
+
+                rp.issue_commands_(info.cmdbuf);
             } break;
 
             default: break;

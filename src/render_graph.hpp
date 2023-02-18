@@ -33,15 +33,26 @@ struct resource_usage_node {
     uint32_t binding_idx;
 };
 
+struct clear_color {
+    float r, g, b, a;
+};
+
 struct binding {
     enum type {
-        sampled_image, storage_image, max_image, storage_buffer, uniform_buffer, max_buffer, none
+        // Image types
+        sampled_image, storage_image, color_attachment, depth_attachment, max_image, 
+        // Buffer types
+        storage_buffer, uniform_buffer, max_buffer, 
+        none
     };
 
     // Index of this binding
     uint32_t idx;
     type utype;
     graph_resource_ref rref;
+
+    // For render passes
+    clear_color clear;
 
     // This is going to point to the next place that the given resource is used
     // Member is written to by the resource which is pointed to by the binding
@@ -65,6 +76,10 @@ struct binding {
             return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         case type::storage_image:
             return VK_IMAGE_LAYOUT_GENERAL;
+        case type::color_attachment:
+            return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        case type::depth_attachment:
+            return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         default:
             assert(false);
             return VK_IMAGE_LAYOUT_MAX_ENUM;
@@ -79,6 +94,10 @@ struct binding {
             return VK_ACCESS_SHADER_READ_BIT;
         case type::storage_image:
             return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        case type::color_attachment:
+            return VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        case type::depth_attachment:
+            return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
         default:
             assert(false);
             return (VkAccessFlags)0;
@@ -88,10 +107,14 @@ struct binding {
 
 struct image_info {
     // If format is NULL, use swapchain image
-    VkFormat format;
+    VkFormat format = VK_FORMAT_MAX_ENUM;
 
     // If 0 in all dimentions, inherit extent from swapchain
     VkExtent3D extent = {};
+
+    // Default values
+    bool is_depth = false;
+    uint32_t layer_count = 1;
 };
 
 /************************* Render Pass ****************************/
@@ -102,8 +125,49 @@ public:
 
     ~render_pass() = default;
 
+    // By default, the render pass won't clear the target
+    void add_color_attachment(
+        const uid_string &uid, 
+        clear_color color = {-1.0f}, 
+        const image_info &info = {});
+
+    void add_depth_attachment(
+        const uid_string &uid,
+        clear_color color = {-1.0f}, 
+        const image_info &info = {});
+
+    // If this isn't set, it just inherits from first binding
+    void set_render_area(VkRect2D rect);
+
+    using draw_commands_proc = void(*)(VkCommandBuffer cmdbuf, VkRect2D rect, void *aux);
+
+    template <typename Aux>
+    void draw_commands(draw_commands_proc draw_proc, Aux &aux) {
+        draw_commands_(draw_proc, (void*)&aux);
+    }
+
+private:
+    void reset_();
+
+    void draw_commands();
+
+    void issue_commands_(VkCommandBuffer cmdbuf);
+
+    void draw_commands_(draw_commands_proc draw_proc, void *aux);
+
 private:
     render_graph *builder_;
+
+    std::vector<binding> bindings_;
+    // -1 if there is no depth attachment
+    s32 depth_index_;
+
+    uid_string uid_;
+
+    VkRect2D rect_;
+
+    draw_commands_proc draw_commands_proc_;
+    void *draw_commands_aux_;
 
     friend class render_graph;
     friend class graph_pass;
@@ -131,7 +195,7 @@ public:
 
     // Whenever we add a resource here, we need to update the linked list
     // of used nodes that start with the resource itself
-    void add_sampled_image(const uid_string &, const image_info &i);
+    void add_sampled_image(const uid_string &);
     void add_storage_image(const uid_string &, const image_info &i = {});
     void add_storage_buffer(const uid_string &);
     void add_uniform_buffer(const uid_string &);
@@ -293,6 +357,11 @@ public:
     // This is necessary in the case of indirection (there is always at most one level of indirection)
     gpu_image &get();
 
+    void configure(const image_info &i);
+
+private:
+    void create_();
+
 private:
     resource_usage_node head_node_;
     resource_usage_node tail_node_;
@@ -312,6 +381,7 @@ private:
     VkExtent3D extent_;
 
     VkImageAspectFlags aspect_;
+    VkFormat format_;
 
     VkImageUsageFlags usage_;
 
@@ -324,6 +394,7 @@ private:
 
     friend class render_graph;
     friend class compute_pass;
+    friend class render_pass;
 };
 
 class graph_resource {
@@ -551,3 +622,5 @@ private:
 #define STG(x) (uid_string{     \
     x, sizeof(x),               \
     get_id<crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF>(render_graph::stg_name_id_counter)})
+
+std::string make_shader_src_path(const char *path, VkShaderStageFlags stage);
