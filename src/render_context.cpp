@@ -261,6 +261,8 @@ static void init_device_() {
     vkCmdDebugMarkerBegin = (PFN_vkCmdDebugMarkerBeginEXT)vkGetDeviceProcAddr(gctx->device, "vkCmdDebugMarkerBeginEXT");
     vkCmdDebugMarkerEnd = (PFN_vkCmdDebugMarkerEndEXT)vkGetDeviceProcAddr(gctx->device, "vkCmdDebugMarkerEndEXT");
     vkCmdDebugMarkerInsert = (PFN_vkCmdDebugMarkerInsertEXT)vkGetDeviceProcAddr(gctx->device, "vkCmdDebugMarkerInsertEXT");
+    vkCmdBeginRenderingKHR_proc = (PFN_vkCmdBeginRenderingKHR)(vkGetDeviceProcAddr(gctx->device, "vkCmdBeginRenderingKHR"));
+    vkCmdEndRenderingKHR_proc = (PFN_vkCmdEndRenderingKHR)(vkGetDeviceProcAddr(gctx->device, "vkCmdEndRenderingKHR"));
 }
 
 static void init_swapchain_() {
@@ -583,3 +585,5 @@ PFN_vkDebugMarkerSetObjectNameEXT vkDebugMarkerSetObjectName;
 PFN_vkCmdDebugMarkerBeginEXT vkCmdDebugMarkerBegin;
 PFN_vkCmdDebugMarkerEndEXT vkCmdDebugMarkerEnd;
 PFN_vkCmdDebugMarkerInsertEXT vkCmdDebugMarkerInsert;
+PFN_vkCmdBeginRenderingKHR vkCmdBeginRenderingKHR_proc;
+PFN_vkCmdEndRenderingKHR vkCmdEndRenderingKHR_proc;

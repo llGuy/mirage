@@ -73,8 +73,8 @@ void render_pass::reset_() {
 void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
     uint32_t color_attachment_count = (uint32_t)(bindings_.size() - (depth_index_ == -1 ? 0 : 1));
 
-    auto *color_attachments = bump_mem_alloc<VkRenderingAttachmentInfo>(color_attachment_count);
-    auto *depth_attachment = (depth_index_ == -1 ? nullptr : bump_mem_alloc<VkRenderingAttachmentInfo>());
+    auto *color_attachments = bump_mem_alloc<VkRenderingAttachmentInfoKHR>(color_attachment_count);
+    auto *depth_attachment = (depth_index_ == -1 ? nullptr : bump_mem_alloc<VkRenderingAttachmentInfoKHR>());
 
     auto *img_barriers = bump_mem_alloc<VkImageMemoryBarrier>(bindings_.size());
 
@@ -87,7 +87,7 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
             VkClearDepthStencilValue clear_value;
             clear_value.depth = b.clear.r;
 
-            depth_attachment->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            depth_attachment->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
             depth_attachment->clearValue.depthStencil = clear_value;
             depth_attachment->imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
             depth_attachment->imageView = img.get().image_view_;
@@ -128,7 +128,7 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
             clear_value.float32[2] = b.clear.b;
             clear_value.float32[3] = b.clear.a;
 
-            color_attachments[c_idx].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            color_attachments[c_idx].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
             color_attachments[c_idx].clearValue.color = clear_value;
             color_attachments[c_idx].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             color_attachments[c_idx].imageView = img.get().image_view_;
@@ -169,8 +169,8 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
         rect_.extent = { img.get().extent_.width, img.get().extent_.height };
     }
 
-    VkRenderingInfo rendering_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+    VkRenderingInfoKHR rendering_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
         .renderArea = rect_,
         // TODO: Don't hardcode 1 layer count
         .layerCount = 1,
@@ -179,12 +179,12 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
         .pDepthAttachment = depth_attachment
     };
 
-    vkCmdBeginRendering(cmdbuf, &rendering_info);
+    vkCmdBeginRenderingKHR_proc(cmdbuf, &rendering_info);
 
     // Issue draw calls
     draw_commands_proc_(cmdbuf, rect_, draw_commands_aux_);
 
-    vkCmdEndRendering(cmdbuf);
+    vkCmdEndRenderingKHR_proc(cmdbuf);
 }
 
 void render_pass::draw_commands_(draw_commands_proc draw_proc, void *aux) {
@@ -655,6 +655,68 @@ void gpu_image::create_() {
     vkCreateImageView(gctx->device, &view_create_info, nullptr, &image_view_);
 }
 
+gpu_buffer::gpu_buffer(render_graph *graph) 
+: builder_(graph), size_(0),
+  buffer_(VK_NULL_HANDLE),
+  usage_(VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT),
+  descriptor_sets_{},
+  current_access_(0), last_used_(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT){
+
+}
+
+void gpu_buffer::update_action(const binding &b) {
+    if (buffer_ == VK_NULL_HANDLE) {
+        action_ = action_flag::to_create;
+    }
+    else {
+        action_ = action_flag::none;
+    }
+
+    switch (b.utype) {
+    case binding::type::storage_buffer: usage_ |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; break;
+    case binding::type::uniform_buffer: usage_ |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT; break;
+    default: break;
+    }
+}
+
+void gpu_buffer::apply_action() {
+    if (action_ == action_flag::to_create) {
+        alloc();
+
+        create_descriptors_(usage_);
+    }
+    else {
+        create_descriptors_(usage_);
+    }
+}
+
+void gpu_buffer::configure(const buffer_info &info) {
+    switch (info.type) {
+    case binding::type::storage_buffer: usage_ |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; break;
+    case binding::type::uniform_buffer: usage_ |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT; break;
+    default: break;
+    }
+
+    size_ = info.size;
+}
+
+void gpu_buffer::alloc() {
+    VkBufferCreateInfo buffer_create_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .flags = 0,
+        .size = size_,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .usage = usage_
+    };
+
+    vkCreateBuffer(gctx->device, &buffer_create_info, nullptr, &buffer_);
+
+    u32 allocated_size = 0;
+    buffer_memory_ = allocate_buffer_memory(buffer_, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+}
+
+
+
 graph_resource::graph_resource()
 : type_(graph_resource::type::none) {
 
@@ -732,6 +794,10 @@ compute_pass &render_graph::add_compute_pass(const uid_string &uid) {
     recorded_stages_.push_back(uid.id);
 
     return get_compute_pass_(uid.id);
+}
+
+void render_graph::add_buffer_update(const uid_string &, void *data, u32 offset, u32 size) {
+
 }
 
 void render_graph::begin() {

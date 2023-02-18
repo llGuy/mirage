@@ -106,19 +106,21 @@ void init_core_render() {
 
         VkPipelineDynamicStateCreateInfo dynamic_state = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-            .dynamicStateCount = 1,
+            .dynamicStateCount = 2,
             .pDynamicStates = dynamic_states
         };
 
         VkPipelineColorBlendAttachmentState attachment = {
             .blendEnable = VK_FALSE,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
         };
 
         VkPipelineColorBlendStateCreateInfo blend = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
             .attachmentCount = 1,
             .pAttachments = &attachment,
-            .logicOpEnable = VK_FALSE
+            .logicOpEnable = VK_FALSE,
+            .logicOp = VK_LOGIC_OP_COPY
         };
 
         VkPipelineLayoutCreateInfo layout_info = {
@@ -175,7 +177,7 @@ void run_render() {
             vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pso);
 
             VkViewport viewport = { 
-                .width = (float)rect.extent.width, .height = (float)rect.extent.height 
+                .width = (float)rect.extent.width, .height = (float)rect.extent.height, .maxDepth = 1.0f, .minDepth = 0.0f
             };
 
             vkCmdSetViewport(cmdbuf, 0, 1, &viewport);

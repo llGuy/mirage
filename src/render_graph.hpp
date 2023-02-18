@@ -8,8 +8,21 @@
 
 // ID of a resource
 using graph_resource_ref = uint32_t;
+
 // ID of a pass stage
 using graph_stage_ref = uint32_t;
+
+#if 0
+struct graph_stage {
+    enum type { pass, update_buffer, copy, blit };
+
+    type t;
+
+    union {
+
+    };
+};
+#endif
 
 constexpr uint32_t invalid_graph_ref = 0xFFFFFFFF;
 constexpr uint32_t graph_stage_ref_present = 0xBADC0FFE;
@@ -103,6 +116,11 @@ struct binding {
             return (VkAccessFlags)0;
         }
     }
+};
+
+struct buffer_info {
+    u32 size;
+    binding::type type;
 };
 
 struct image_info {
@@ -314,22 +332,47 @@ private:
 /************************* Resource *******************************/
 class gpu_buffer { // TODO
 public:
-    gpu_buffer(render_graph *graph) 
-    : builder_(graph) {
+    enum action_flag { to_create, none };
 
-    }
+    gpu_buffer(render_graph *graph);
 
     // TODO
-    void update_action(const binding &b) {}
-    void apply_action() {}
+    void update_action(const binding &b);
+    void apply_action();
+
+    void configure(const buffer_info &info);
+
+    void set_size(u32 size);
+    void set_binding_type(binding::type type);
+
+    void alloc();
+
+private:
+    void create_descriptors_(VkBufferUsageFlags usage) {};
 
 private:
     resource_usage_node head_node_;
     resource_usage_node tail_node_;
 
-    // Keep track of last stage this was used in
+    action_flag action_;
 
     render_graph *builder_;
+
+    VkBuffer buffer_;
+    VkDeviceMemory buffer_memory_;
+
+    u32 size_;
+
+    VkBufferUsageFlags usage_;
+
+    VkDescriptorSet descriptor_sets_[binding::type::none];
+
+    VkAccessFlags current_access_;
+    VkPipelineStageFlags last_used_;
+
+    friend class render_graph;
+    friend class compute_pass;
+    friend class render_pass;
 };
 
 class gpu_image {
@@ -371,6 +414,8 @@ private:
 
 private:
     // Are we referencing another image?
+    //
+    // void alloc();
     graph_resource_ref reference_;
 
     // Actual image data
@@ -523,10 +568,13 @@ public:
 
     // Register swapchain targets in the resources array
     void register_swapchain(const graph_swapchain_info &swp);
-    
+    // Usage of this buffer
+    gpu_buffer &register_buffer(const uid_string &);
+
     // This will schedule the passes and potentially allocate and create them
     render_pass &add_render_pass(const uid_string &);
     compute_pass &add_compute_pass(const uid_string &);
+    void add_buffer_update(const uid_string &, void *data, u32 offset, u32 size);
 
     // Start recording a set of passes / commands
     void begin();

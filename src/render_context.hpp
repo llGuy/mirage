@@ -73,3 +73,5 @@ extern PFN_vkDebugMarkerSetObjectNameEXT vkDebugMarkerSetObjectName;
 extern PFN_vkCmdDebugMarkerBeginEXT vkCmdDebugMarkerBegin;
 extern PFN_vkCmdDebugMarkerEndEXT vkCmdDebugMarkerEnd;
 extern PFN_vkCmdDebugMarkerInsertEXT vkCmdDebugMarkerInsert;
+extern PFN_vkCmdBeginRenderingKHR vkCmdBeginRenderingKHR_proc;
+extern PFN_vkCmdEndRenderingKHR vkCmdEndRenderingKHR_proc;
