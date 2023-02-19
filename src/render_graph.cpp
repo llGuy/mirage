@@ -46,7 +46,7 @@ void render_pass::add_color_attachment(const uid_string &uid, clear_color color,
 
     // Get image will allocate space for the image struct if it hasn't been created yet
     gpu_image &img = builder_->get_image_(uid.id);
-    img.add_usage_node(uid_.id, binding_id);
+    img.add_usage_node_(uid_.id, binding_id);
 }
 
 void render_pass::add_depth_attachment(const uid_string &uid, clear_color color, const image_info &info) {
@@ -57,7 +57,7 @@ void render_pass::add_depth_attachment(const uid_string &uid, clear_color color,
 
     // Get image will allocate space for the image struct if it hasn't been created yet
     gpu_image &img = builder_->get_image_(uid.id);
-    img.add_usage_node(uid_.id, binding_id);
+    img.add_usage_node_(uid_.id, binding_id);
 }
 
 void render_pass::set_render_area(VkRect2D rect) {
@@ -90,19 +90,19 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
             depth_attachment->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
             depth_attachment->clearValue.depthStencil = clear_value;
             depth_attachment->imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            depth_attachment->imageView = img.get().image_view_;
+            depth_attachment->imageView = img.get_().image_view_;
             depth_attachment->loadOp = (b.clear.r < 0.0f ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR);
             depth_attachment->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
             // Issue memory barrier
             VkImageMemoryBarrier barrier = {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .image = img.get().image_,
-                .oldLayout = img.get().current_layout_,
+                .image = img.get_().image_,
+                .oldLayout = img.get_().current_layout_,
                 .newLayout = b.get_image_layout(),
-                .srcAccessMask = img.get().current_access_,
+                .srcAccessMask = img.get_().current_access_,
                 .dstAccessMask = b.get_image_access(),
-                .subresourceRange.aspectMask = img.get().aspect_,
+                .subresourceRange.aspectMask = img.get_().aspect_,
                 // TODO: Support non-hardcoded values for this
                 .subresourceRange.baseArrayLayer = 0,
                 .subresourceRange.baseMipLevel = 0,
@@ -110,12 +110,12 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
                 .subresourceRange.levelCount = 1
             };
 
-            vkCmdPipelineBarrier(cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+            vkCmdPipelineBarrier(cmdbuf, img.get_().last_used_, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
             // Update image data
-            img.get().current_layout_ = b.get_image_layout();
-            img.get().current_access_ = b.get_image_access();
-            img.get().last_used_ = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+            img.get_().current_layout_ = b.get_image_layout();
+            img.get_().current_access_ = b.get_image_access();
+            img.get_().last_used_ = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         }
         else {
             binding &b = bindings_[b_idx];
@@ -131,19 +131,19 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
             color_attachments[c_idx].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
             color_attachments[c_idx].clearValue.color = clear_value;
             color_attachments[c_idx].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            color_attachments[c_idx].imageView = img.get().image_view_;
+            color_attachments[c_idx].imageView = img.get_().image_view_;
             color_attachments[c_idx].loadOp = (b.clear.r < 0.0f ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR);
             color_attachments[c_idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
             // Issue memory barrier
             VkImageMemoryBarrier barrier = {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .image = img.get().image_,
-                .oldLayout = img.get().current_layout_,
+                .image = img.get_().image_,
+                .oldLayout = img.get_().current_layout_,
                 .newLayout = b.get_image_layout(),
-                .srcAccessMask = img.get().current_access_,
+                .srcAccessMask = img.get_().current_access_,
                 .dstAccessMask = b.get_image_access(),
-                .subresourceRange.aspectMask = img.get().aspect_,
+                .subresourceRange.aspectMask = img.get_().aspect_,
                 // TODO: Support non-hardcoded values for this
                 .subresourceRange.baseArrayLayer = 0,
                 .subresourceRange.baseMipLevel = 0,
@@ -151,12 +151,12 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
                 .subresourceRange.levelCount = 1
             };
 
-            vkCmdPipelineBarrier(cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+            vkCmdPipelineBarrier(cmdbuf, img.get_().last_used_, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
             // Update image data
-            img.get().current_layout_ = b.get_image_layout();
-            img.get().current_access_ = b.get_image_access();
-            img.get().last_used_ = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            img.get_().current_layout_ = b.get_image_layout();
+            img.get_().current_access_ = b.get_image_access();
+            img.get_().last_used_ = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
             ++c_idx;
         }
@@ -166,7 +166,7 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
         gpu_image &img = builder_->get_image_(bindings_[0].rref);
 
         rect_.offset = {};
-        rect_.extent = { img.get().extent_.width, img.get().extent_.height };
+        rect_.extent = { img.get_().extent_.width, img.get_().extent_.height };
     }
 
     VkRenderingInfoKHR rendering_info = {
@@ -221,7 +221,7 @@ void compute_pass::add_sampled_image(const uid_string &uid) {
 
     // Get image will allocate space for the image struct if it hasn't been created yet
     gpu_image &img = builder_->get_image_(uid.id);
-    img.add_usage_node(uid_.id, binding_id);
+    img.add_usage_node_(uid_.id, binding_id);
 }
 
 void compute_pass::add_storage_image(const uid_string &uid, const image_info &i) {
@@ -231,7 +231,8 @@ void compute_pass::add_storage_image(const uid_string &uid, const image_info &i)
     bindings_.push_back(b);
 
     gpu_image &img = builder_->get_image_(uid.id);
-    img.add_usage_node(uid_.id, binding_id);
+    img.add_usage_node_(uid_.id, binding_id);
+    img.configure(i);
 }
 
 void compute_pass::add_storage_buffer(const uid_string &uid) {
@@ -241,7 +242,7 @@ void compute_pass::add_storage_buffer(const uid_string &uid) {
     bindings_.push_back(b);
 
     gpu_buffer &buf = builder_->get_buffer_(uid.id);
-    buf.add_usage_node(uid_.id, binding_id);
+    buf.add_usage_node_(uid_.id, binding_id);
 }
 
 void compute_pass::add_uniform_buffer(const uid_string &uid) {
@@ -251,7 +252,7 @@ void compute_pass::add_uniform_buffer(const uid_string &uid) {
     bindings_.push_back(b);
 
     gpu_buffer &buf = builder_->get_buffer_(uid.id);
-    buf.add_usage_node(uid_.id, binding_id);
+    buf.add_usage_node_(uid_.id, binding_id);
 }
 
 void compute_pass::send_data(const void *data, uint32_t size) {
@@ -356,12 +357,12 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf) {
             auto &img = res.get_image();
             VkImageMemoryBarrier barrier = {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .image = img.get().image_,
-                .oldLayout = img.get().current_layout_,
+                .image = img.get_().image_,
+                .oldLayout = img.get_().current_layout_,
                 .newLayout = b.get_image_layout(),
-                .srcAccessMask = img.get().current_access_,
+                .srcAccessMask = img.get_().current_access_,
                 .dstAccessMask = b.get_image_access(),
-                .subresourceRange.aspectMask = img.get().aspect_,
+                .subresourceRange.aspectMask = img.get_().aspect_,
                 // TODO: Support non-hardcoded values for this
                 .subresourceRange.baseArrayLayer = 0,
                 .subresourceRange.baseMipLevel = 0,
@@ -369,18 +370,33 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf) {
                 .subresourceRange.levelCount = 1
             };
 
-            vkCmdPipelineBarrier(cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+            vkCmdPipelineBarrier(cmdbuf, img.get_().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
             // Update image data
-            img.get().current_layout_ = b.get_image_layout();
-            img.get().current_access_ = b.get_image_access();
-            img.get().last_used_ = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            img.get_().current_layout_ = b.get_image_layout();
+            img.get_().current_access_ = b.get_image_access();
+            img.get_().last_used_ = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 
-            descriptor_sets[i] = img.get().get_descriptor_set(b.utype);
+            descriptor_sets[i] = img.get_().get_descriptor_set_(b.utype);
         } break;
 
         case graph_resource::type::graph_buffer: {
-            ;
+            auto &buf = res.get_buffer();
+            VkBufferMemoryBarrier barrier = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .size = buf.size_,
+                .buffer = buf.buffer_,
+                .offset = 0,
+                .srcAccessMask = buf.current_access_,
+                .dstAccessMask = b.get_buffer_access(),
+            };
+
+            vkCmdPipelineBarrier(cmdbuf, buf.last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+
+            buf.current_access_ = b.get_buffer_access();
+            buf.last_used_ = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+            descriptor_sets[i] = buf.get_descriptor_set_(b.utype);
         } break;
 
         default:
@@ -401,7 +417,7 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf) {
     if (dispatch_params_.is_waves) {
         gpu_image &ref = builder_->get_image_(dispatch_params_.binding_res);
 
-        VkExtent3D extent = ref.get().extent_;
+        VkExtent3D extent = ref.get_().extent_;
         gx = (uint32_t)glm::ceil((float)extent.width / (float)gx);
         gy = (uint32_t)glm::ceil((float)extent.height / (float)gy);
         gz = (uint32_t)glm::ceil((float)extent.depth / (float)gz);
@@ -492,7 +508,7 @@ gpu_image::gpu_image(render_graph *builder)
 
 }
 
-void gpu_image::add_usage_node(graph_stage_ref stg, uint32_t binding_idx) {
+void gpu_image::add_usage_node_(graph_stage_ref stg, uint32_t binding_idx) {
     if (!tail_node_.is_invalid()) {
         binding &tail = builder_->get_binding_(tail_node_.stage, tail_node_.binding_idx);
 
@@ -513,7 +529,7 @@ void gpu_image::add_usage_node(graph_stage_ref stg, uint32_t binding_idx) {
     }
 }
  
-void gpu_image::update_action(const binding &b) {
+void gpu_image::update_action_(const binding &b) {
     if (image_ == VK_NULL_HANDLE) {
         // Lazily create the images
         action_ = action_flag::to_create;
@@ -532,23 +548,23 @@ void gpu_image::update_action(const binding &b) {
     }
 }
 
-void gpu_image::apply_action() {
+void gpu_image::apply_action_() {
     // We need to create this image
     if (action_ == action_flag::to_create) {
         // TODO: actual image creation
-        create_();
+        alloc();
 
-        create_descriptors(usage_);
+        create_descriptors_(usage_);
     }
     else if (action_ == action_flag::to_present) {
         reference_ = builder_->get_current_swapchain_ref_();
 
         // The image to present needs to also have descriptors created for it
-        builder_->get_image_(reference_).create_descriptors(usage_);
+        builder_->get_image_(reference_).create_descriptors_(usage_);
     }
     else {
         // If the descriptors were already created, no need to do anything for them
-        create_descriptors(usage_);
+        create_descriptors_(usage_);
     }
 
     // action_ = action_flag::none;
@@ -556,7 +572,7 @@ void gpu_image::apply_action() {
 
 // These may or may not match with the usage_ member - could be invoked
 // by another image (resource aliasing stuff)
-void gpu_image::create_descriptors(VkImageUsageFlags usage) {
+void gpu_image::create_descriptors_(VkImageUsageFlags usage) {
     VkImageUsageFlagBits bits[] = { VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_USAGE_STORAGE_BIT };
     VkDescriptorType descriptor_types[] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE };
     VkImageLayout expected_layouts[] = { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL };
@@ -595,11 +611,11 @@ void gpu_image::create_descriptors(VkImageUsageFlags usage) {
     }
 }
 
-VkDescriptorSet gpu_image::get_descriptor_set(binding::type t) {
+VkDescriptorSet gpu_image::get_descriptor_set_(binding::type t) {
     return descriptor_sets_[t];
 }
 
-gpu_image &gpu_image::get() {
+gpu_image &gpu_image::get_() {
     // Later, we can also add a to reference in the case of aliasing
     if (action_ == action_flag::to_present)
         return builder_->get_image_(reference_);
@@ -633,7 +649,7 @@ void gpu_image::configure(const image_info &info) {
     // TODO: Layer counts and stuff...
 }
 
-void gpu_image::create_() {
+void gpu_image::alloc() {
     VkImageCreateInfo image_create_info = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .flags = 0,
@@ -675,10 +691,11 @@ gpu_buffer::gpu_buffer(render_graph *graph)
   usage_(VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT),
   descriptor_sets_{},
   current_access_(0), last_used_(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT){
-
+    tail_node_.invalidate();
+    head_node_.invalidate();
 }
 
-void gpu_buffer::update_action(const binding &b) {
+void gpu_buffer::update_action_(const binding &b) {
     if (buffer_ == VK_NULL_HANDLE) {
         action_ = action_flag::to_create;
     }
@@ -694,7 +711,7 @@ void gpu_buffer::update_action(const binding &b) {
     }
 }
 
-void gpu_buffer::apply_action() {
+void gpu_buffer::apply_action_() {
     if (action_ == action_flag::to_create) {
         alloc();
 
@@ -730,7 +747,7 @@ void gpu_buffer::alloc() {
     buffer_memory_ = allocate_buffer_memory(buffer_, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 }
 
-void gpu_buffer::add_usage_node(graph_stage_ref stg, uint32_t binding_idx) {
+void gpu_buffer::add_usage_node_(graph_stage_ref stg, uint32_t binding_idx) {
     if (!tail_node_.is_invalid()) {
         binding &tail = builder_->get_binding_(tail_node_.stage, tail_node_.binding_idx);
 
@@ -749,6 +766,50 @@ void gpu_buffer::add_usage_node(graph_stage_ref stg, uint32_t binding_idx) {
         head_node_.stage = stg;
         head_node_.binding_idx = binding_idx;
     }
+}
+
+void gpu_buffer::create_descriptors_(VkBufferUsageFlags usage) {
+    VkBufferUsageFlagBits bits[] = {
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
+    VkDescriptorType descriptor_types[] = {
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER };
+
+    for (int i = 0; i < sizeof(bits)/sizeof(bits[0]); ++i) {
+        if (usage & bits[i] && descriptor_sets_[i] == VK_NULL_HANDLE) {
+            VkDescriptorSetLayout layout = get_descriptor_set_layout(
+                descriptor_types[i], 1);
+
+            VkDescriptorSetAllocateInfo allocate_info = {};
+            allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocate_info.descriptorPool = gctx->descriptor_pool;
+            allocate_info.descriptorSetCount = 1;
+            allocate_info.pSetLayouts = &layout;
+
+            vkAllocateDescriptorSets(
+                gctx->device, &allocate_info, &descriptor_sets_[i]);
+
+            VkDescriptorBufferInfo buffer_info = {};
+            VkWriteDescriptorSet write = {};
+
+            buffer_info.offset = 0;
+            buffer_info.buffer = buffer_;
+            buffer_info.range = size_;
+
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = descriptor_sets_[i];
+            write.dstBinding = 0;
+            write.dstArrayElement = 0;
+            write.descriptorCount = 1;
+            write.descriptorType = descriptor_types[i];
+            write.pBufferInfo = &buffer_info;
+
+            vkUpdateDescriptorSets(gctx->device, 1, &write, 0, nullptr);
+        }
+    }
+}
+
+VkDescriptorSet gpu_buffer::get_descriptor_set_(binding::type utype) {
+    return descriptor_sets_[utype - binding::type::storage_buffer];
 }
 
 
@@ -780,6 +841,8 @@ transfer_operation::transfer_operation(graph_stage_ref ref, render_graph *builde
 }
 
 void transfer_operation::init_as_buffer_update(graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size) {
+
+    type_ = type::buffer_update;
     binding b = { 0, binding::type::buffer_transfer_dst, buf_ref };
 
     bindings_ = bump_mem_alloc<binding>();
@@ -790,7 +853,7 @@ void transfer_operation::init_as_buffer_update(graph_resource_ref buf_ref, void 
     buffer_update_state_.size = size;
 
     gpu_buffer &buf = builder_->get_buffer_(buf_ref);
-    buf.add_usage_node(stage_ref_, 0);
+    buf.add_usage_node_(stage_ref_, 0);
 }
 
 binding &transfer_operation::get_binding(uint32_t idx) {
@@ -833,6 +896,10 @@ void render_graph::register_swapchain(const graph_swapchain_info &swp) {
     // resources_.push_back();
 }
 
+gpu_buffer &render_graph::register_buffer(const uid_string &uid) {
+    return get_buffer_(uid.id);
+}
+
 render_pass &render_graph::add_render_pass(const uid_string &uid) {
     if (passes_.size() <= uid.id) {
         // Reallocate the vector such that the new pass will fit
@@ -864,8 +931,12 @@ compute_pass &render_graph::add_compute_pass(const uid_string &uid) {
 void render_graph::add_buffer_update(const uid_string &uid, void *data, u32 offset, u32 size) {
     graph_stage_ref ref (graph_stage_ref::type::transfer, transfers_.size());
 
-    transfer_operation transfer (ref, this);
+    transfers_.push_back(transfer_operation(ref, this));
+
+    transfer_operation &transfer = transfers_[transfers_.size() - 1];
     transfer.init_as_buffer_update(uid.id, data, offset, size);
+
+    recorded_stages_.push_back(ref);
 }
 
 void render_graph::begin() {
@@ -892,28 +963,34 @@ void render_graph::begin() {
     }
 
     for (auto stg : recorded_stages_) {
-        if (stg == graph_stage_ref_present) 
-            continue;
+        if (stg.stage_type == graph_stage_ref::type::pass) {
+            if (stg == graph_stage_ref_present) 
+                continue;
 
-        switch (passes_[stg].get_type()) {
-        case graph_pass::graph_compute_pass: {
-            compute_pass &cp = passes_[stg].get_compute_pass();
-            cp.bindings_.clear();
-        } break;
+            switch (passes_[stg].get_type()) {
+                case graph_pass::graph_compute_pass: {
+                    compute_pass &cp = passes_[stg].get_compute_pass();
+                    cp.bindings_.clear();
+                } break;
 
-        case graph_pass::graph_render_pass: {
-            render_pass &rp = passes_[stg].get_render_pass();
-            rp.bindings_.clear();
-            rp.depth_index_ = -1;
-        } break;
+                case graph_pass::graph_render_pass: {
+                    render_pass &rp = passes_[stg].get_render_pass();
+                    rp.bindings_.clear();
+                    rp.depth_index_ = -1;
+                } break;
 
-        default: break;
+                default: break;
+            }
+        }
+        else if (stg.stage_type == graph_stage_ref::type::transfer) {
+            transfers_[stg].bindings_ = nullptr;
         }
     }
 
     recorded_stages_.clear();
     used_resources_.clear();
     recorded_stages_.clear();
+    transfers_.clear();
 
     present_info_.is_active = false;
 }
@@ -943,8 +1020,8 @@ void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg) {
                 for (auto &bind : cp.bindings_) {
                     auto &res = get_resource_(bind.rref);
                     switch (res.get_type()) {
-                        case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
-                        case graph_resource::type::graph_buffer: res.get_buffer().update_action(bind); break;
+                        case graph_resource::type::graph_image: res.get_image().update_action_(bind); break;
+                        case graph_resource::type::graph_buffer: res.get_buffer().update_action_(bind); break;
                         default: break;
                     }
 
@@ -962,7 +1039,7 @@ void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg) {
                 for (auto &bind : rp.bindings_) {
                     auto &res = get_resource_(bind.rref);
                     switch (res.get_type()) {
-                        case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
+                        case graph_resource::type::graph_image: res.get_image().update_action_(bind); break;
                         default: assert(false); break;
                     }
 
@@ -985,7 +1062,7 @@ void render_graph::prepare_transfer_graph_stage_(graph_stage_ref ref) {
     case transfer_operation::type::buffer_update: {
         auto &bind = op.get_binding(0);
         auto &res = get_resource_(bind.rref);
-        res.get_buffer().update_action(bind);
+        res.get_buffer().update_action_(bind);
 
         if (!res.was_used_) {
             res.was_used_ = true;
@@ -1005,24 +1082,24 @@ void render_graph::execute_pass_graph_stage_(graph_stage_ref stg, VkPipelineStag
         // Handle present stage - transition image layout
         VkImageMemoryBarrier barrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .image = img.get().image_,
-            .oldLayout = img.get().current_layout_,
+            .image = img.get_().image_,
+            .oldLayout = img.get_().current_layout_,
             .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            .srcAccessMask = img.get().current_access_,
+            .srcAccessMask = img.get_().current_access_,
             .dstAccessMask = 0,
-            .subresourceRange.aspectMask = img.get().aspect_,
+            .subresourceRange.aspectMask = img.get_().aspect_,
             .subresourceRange.baseArrayLayer = 0,
             .subresourceRange.baseMipLevel = 0,
             .subresourceRange.layerCount = 1,
             .subresourceRange.levelCount = 1
         };
 
-        vkCmdPipelineBarrier(info.cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+        vkCmdPipelineBarrier(info.cmdbuf, img.get_().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
         // Update image data
-        img.get().current_layout_ = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        img.get().current_access_ = 0;
-        img.get().last_used_ = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        img.get_().current_layout_ = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        img.get_().current_access_ = 0;
+        img.get_().last_used_ = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     }
     else {
         // Handle compute / render passes
@@ -1116,11 +1193,11 @@ void render_graph::end(cmdbuf_generator *generator) {
 
         switch (res.get_type()) {
         case graph_resource::type::graph_image:
-            res.get_image().apply_action();
+            res.get_image().apply_action_();
             break;
 
         case graph_resource::type::graph_buffer:
-            res.get_buffer().apply_action();
+            res.get_buffer().apply_action_();
             break;
 
         default:
@@ -1149,7 +1226,7 @@ void render_graph::present(const uid_string &res_uid) {
 
     gpu_image &img = get_image_(res_uid.id);
     img.reference_ = graph_stage_ref_present;
-    img.add_usage_node(graph_stage_ref_present, 0);
+    img.add_usage_node_(graph_stage_ref_present, 0);
 
     recorded_stages_.push_back(graph_stage_ref_present);
 }

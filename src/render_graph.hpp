@@ -49,7 +49,7 @@ struct resource_usage_node {
     }
 
     inline bool is_invalid() {
-        return stage == invalid_graph_ref;
+        return stage.stage_idx == invalid_graph_ref;
     }
 
     graph_stage_ref stage;
@@ -67,7 +67,7 @@ struct binding {
         // Image types
         sampled_image, storage_image, color_attachment, depth_attachment, max_image, 
         // Buffer types
-        storage_buffer, uniform_buffer, buffer_transfer_dst, max_buffer,
+        storage_buffer, uniform_buffer, buffer_transfer_src, buffer_transfer_dst, max_buffer,
         none
     };
 
@@ -96,7 +96,7 @@ struct binding {
     VkImageLayout get_image_layout() {
         assert(utype < type::max_image);
 
-        switch(utype) {
+        switch (utype) {
         case type::sampled_image:
             return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         case type::storage_image:
@@ -111,10 +111,26 @@ struct binding {
         }
     }
 
+    VkAccessFlags get_buffer_access() {
+        switch (utype) {
+        case type::uniform_buffer:
+            return VK_ACCESS_MEMORY_READ_BIT;
+        case type::storage_buffer:
+            return VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+        case type::buffer_transfer_src:
+            return VK_ACCESS_MEMORY_READ_BIT;
+        case type::buffer_transfer_dst:
+            return VK_ACCESS_MEMORY_WRITE_BIT;
+        default:
+            assert(false);
+            return (VkAccessFlags)0;
+        }
+    }
+
     VkAccessFlags get_image_access() {
         assert(utype < type::max_image);
 
-        switch(utype) {
+        switch (utype) {
         case type::sampled_image:
             return VK_ACCESS_SHADER_READ_BIT;
         case type::storage_image:
@@ -348,21 +364,19 @@ public:
 
     gpu_buffer(render_graph *graph);
 
-    // TODO
-    void update_action(const binding &b);
-    void apply_action();
+    void configure(const buffer_info &i);
 
-    void configure(const buffer_info &info);
-
-    void set_size(u32 size);
-    void set_binding_type(binding::type type);
-
-    void add_usage_node(graph_stage_ref stg, uint32_t binding_idx);
-
+    // Actually allocates the memory and creates the resource
     void alloc();
 
 private:
-    void create_descriptors_(VkBufferUsageFlags usage) {};
+    void update_action_(const binding &b);
+    void apply_action_();
+
+    void add_usage_node_(graph_stage_ref stg, uint32_t binding_idx);
+
+    VkDescriptorSet get_descriptor_set_(binding::type utype);
+    void create_descriptors_(VkBufferUsageFlags usage);
 
 private:
     resource_usage_node head_node_;
@@ -379,7 +393,7 @@ private:
 
     VkBufferUsageFlags usage_;
 
-    VkDescriptorSet descriptor_sets_[binding::type::none];
+    VkDescriptorSet descriptor_sets_[binding::type::max_buffer - binding::type::max_image];
 
     VkAccessFlags current_access_;
     VkPipelineStageFlags last_used_;
@@ -387,6 +401,8 @@ private:
     friend class render_graph;
     friend class compute_pass;
     friend class render_pass;
+    friend class graph_resource;
+    friend class transfer_operation;
 };
 
 class gpu_image {
@@ -396,28 +412,29 @@ public:
     enum action_flag { to_create, to_present, none };
 
     gpu_image();
-    gpu_image(render_graph *);
-
-    void add_usage_node(graph_stage_ref stg, uint32_t binding_idx);
-
-    // Update action but also its usage flags
-    void update_action(const binding &b);
-
-    void apply_action();
-
-    // Create descriptors given a usage flag (if the descriptors were already created,
-    // don't do anything for that kind of descriptor).
-    void create_descriptors(VkImageUsageFlags usage);
-
-    VkDescriptorSet get_descriptor_set(binding::type t);
-
-    // This is necessary in the case of indirection (there is always at most one level of indirection)
-    gpu_image &get();
 
     void configure(const image_info &i);
 
+    void alloc();
+
 private:
-    void create_();
+    gpu_image(render_graph *);
+
+    void add_usage_node_(graph_stage_ref stg, uint32_t binding_idx);
+
+    // Update action but also its usage flags
+    void update_action_(const binding &b);
+
+    void apply_action_();
+
+    // Create descriptors given a usage flag (if the descriptors were already created,
+    // don't do anything for that kind of descriptor).
+    void create_descriptors_(VkImageUsageFlags usage);
+
+    // This is necessary in the case of indirection (there is always at most one level of indirection)
+    gpu_image &get_();
+
+    VkDescriptorSet get_descriptor_set_(binding::type t);
 
 private:
     resource_usage_node head_node_;
@@ -454,6 +471,8 @@ private:
     friend class render_graph;
     friend class compute_pass;
     friend class render_pass;
+    friend class graph_resource;
+    friend class transfer_operation;
 };
 
 class graph_resource {
@@ -495,8 +514,8 @@ public:
     // Given a binding, update the action that should be done on the resource
     inline void update_action(const binding &b) {
         switch (type_) {
-        case graph_image: img_.update_action(b); break;
-        case graph_buffer: buf_.update_action(b); break;
+        case graph_image: img_.update_action_(b); break;
+        case graph_buffer: buf_.update_action_(b); break;
         default: break;
         }
     }
@@ -689,10 +708,15 @@ private:
     }
 
     inline binding &get_binding_(graph_stage_ref stg, uint32_t binding_idx) {
-        if (stg == graph_stage_ref_present)
-            return present_info_.b;
-        else
-            return passes_[stg].get_binding(binding_idx); 
+        if (stg.stage_type == graph_stage_ref::type::pass) {
+            if (stg == graph_stage_ref_present)
+                return present_info_.b;
+            else
+                return passes_[stg].get_binding(binding_idx); 
+        }
+        else {
+            return transfers_[stg].get_binding(binding_idx);
+        }
     }
 
     graph_resource_ref get_current_swapchain_ref_() {
