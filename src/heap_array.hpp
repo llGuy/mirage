@@ -39,6 +39,10 @@ public:
         count_ = size;
     }
 
+    void zero() {
+        memset(buffer_, 0, sizeof(T) * count_);
+    }
+
     ~heap_array() {
         mem_freev(buffer_);
         count_ = 0;

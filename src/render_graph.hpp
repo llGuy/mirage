@@ -10,22 +10,34 @@
 using graph_resource_ref = uint32_t;
 
 // ID of a pass stage
-using graph_stage_ref = uint32_t;
-
-#if 0
-struct graph_stage {
-    enum type { pass, update_buffer, copy, blit };
-
-    type t;
-
-    union {
-
+struct graph_stage_ref {
+    enum type {
+        pass,
+        transfer,
+        none
     };
-};
-#endif
 
-constexpr uint32_t invalid_graph_ref = 0xFFFFFFFF;
-constexpr uint32_t graph_stage_ref_present = 0xBADC0FFE;
+    uint32_t stage_type : 2;
+    uint32_t stage_idx : 30;
+
+    graph_stage_ref() = default;
+    graph_stage_ref(uint32_t idx) {
+        stage_type = type::pass;
+        stage_idx = idx;
+    }
+
+    graph_stage_ref(type t, uint32_t idx) {
+        stage_type = t;
+        stage_idx = idx;
+    }
+
+    operator uint32_t() {
+        return stage_idx;
+    }
+};
+
+constexpr uint32_t invalid_graph_ref = 0xFFFFFFF;
+constexpr uint32_t graph_stage_ref_present = 0xBADC0FE;
 
 class render_graph;
 
@@ -55,7 +67,7 @@ struct binding {
         // Image types
         sampled_image, storage_image, color_attachment, depth_attachment, max_image, 
         // Buffer types
-        storage_buffer, uniform_buffer, max_buffer, 
+        storage_buffer, uniform_buffer, buffer_transfer_dst, max_buffer,
         none
     };
 
@@ -345,6 +357,8 @@ public:
     void set_size(u32 size);
     void set_binding_type(binding::type type);
 
+    void add_usage_node(graph_stage_ref stg, uint32_t binding_idx);
+
     void alloc();
 
 private:
@@ -503,6 +517,57 @@ private:
     friend class render_graph;
 };
 
+/************************* Transfer *******************************/
+class transfer_operation {
+public:
+    enum type {
+        buffer_update, buffer_copy, image_copy, image_blit, none
+    };
+
+    transfer_operation();
+    transfer_operation(graph_stage_ref ref, render_graph *builder);
+
+    void init_as_buffer_update(graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size);
+
+    binding &get_binding(uint32_t idx);
+
+    /*
+    void init_as_buffer_copy(graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
+    void init_as_image_copy(graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
+    void init_as_image_blit(graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
+    */
+
+private:
+    type type_;
+    render_graph *builder_;
+    graph_stage_ref stage_ref_;
+
+    binding *bindings_;
+
+    union {
+        struct {
+            void *data;
+            uint32_t offset;
+            uint32_t size;
+        } buffer_update_state_;
+
+        // TODO:
+        struct {
+
+        } buffer_copy_state;
+
+        struct {
+
+        } image_copy_state;
+
+        struct {
+
+        } image_blit_state;
+    };
+
+    friend class render_graph;
+};
+
 
 
 /************************* Graph Builder **************************/
@@ -589,6 +654,12 @@ public:
     void present(const uid_string &);
 
 private:
+    void prepare_pass_graph_stage_(graph_stage_ref ref);
+    void prepare_transfer_graph_stage_(graph_stage_ref ref);
+
+    void execute_pass_graph_stage_(graph_stage_ref ref, VkPipelineStageFlags &last, const cmdbuf_generator::cmdbuf_info &info);
+    void execute_transfer_graph_stage_(graph_stage_ref ref, const cmdbuf_generator::cmdbuf_info &info);
+
     inline compute_pass &get_compute_pass_(graph_stage_ref stg) { return passes_[stg].get_compute_pass(); }
     inline render_pass &get_render_pass_(graph_stage_ref stg) { return passes_[stg].get_render_pass(); }
 
@@ -646,6 +717,8 @@ private:
     std::vector<graph_stage_ref> recorded_stages_;
     std::vector<graph_resource_ref> used_resources_;
 
+    std::vector<transfer_operation> transfers_;
+
     struct present_info {
         graph_resource_ref to_present;
         // Are we presenting with these commands?
@@ -661,6 +734,7 @@ private:
     friend class render_pass;
     friend class gpu_image;
     friend class gpu_buffer;
+    friend class transfer_operation;
 };
 
 #define RES(x) (uid_string{     \

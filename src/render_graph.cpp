@@ -182,6 +182,12 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
     vkCmdBeginRenderingKHR_proc(cmdbuf, &rendering_info);
 
     // Issue draw calls
+    VkViewport viewport = { 
+        .width = (float)rect_.extent.width, .height = (float)rect_.extent.height, .maxDepth = 1.0f, .minDepth = 0.0f
+    };
+
+    vkCmdSetViewport(cmdbuf, 0, 1, &viewport);
+    vkCmdSetScissor(cmdbuf, 0, 1, &rect_);
     draw_commands_proc_(cmdbuf, rect_, draw_commands_aux_);
 
     vkCmdEndRenderingKHR_proc(cmdbuf);
@@ -229,15 +235,23 @@ void compute_pass::add_storage_image(const uid_string &uid, const image_info &i)
 }
 
 void compute_pass::add_storage_buffer(const uid_string &uid) {
+    uint32_t binding_id = bindings_.size();
+
     binding b = { (uint32_t)bindings_.size(), binding::type::storage_buffer, uid.id };
     bindings_.push_back(b);
 
-    // Do the same for buffers (as we do for images)
+    gpu_buffer &buf = builder_->get_buffer_(uid.id);
+    buf.add_usage_node(uid_.id, binding_id);
 }
 
 void compute_pass::add_uniform_buffer(const uid_string &uid) {
+    uint32_t binding_id = bindings_.size();
+    
     binding b = { (uint32_t)bindings_.size(), binding::type::uniform_buffer, uid.id };
     bindings_.push_back(b);
+
+    gpu_buffer &buf = builder_->get_buffer_(uid.id);
+    buf.add_usage_node(uid_.id, binding_id);
 }
 
 void compute_pass::send_data(const void *data, uint32_t size) {
@@ -675,6 +689,7 @@ void gpu_buffer::update_action(const binding &b) {
     switch (b.utype) {
     case binding::type::storage_buffer: usage_ |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; break;
     case binding::type::uniform_buffer: usage_ |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT; break;
+    case binding::type::buffer_transfer_dst: usage_ |= VK_BUFFER_USAGE_TRANSFER_DST_BIT; break;
     default: break;
     }
 }
@@ -715,6 +730,27 @@ void gpu_buffer::alloc() {
     buffer_memory_ = allocate_buffer_memory(buffer_, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 }
 
+void gpu_buffer::add_usage_node(graph_stage_ref stg, uint32_t binding_idx) {
+    if (!tail_node_.is_invalid()) {
+        binding &tail = builder_->get_binding_(tail_node_.stage, tail_node_.binding_idx);
+
+        tail.next.stage = stg;
+        tail.next.binding_idx = binding_idx;
+    }
+
+    tail_node_.stage = stg;
+    tail_node_.binding_idx = binding_idx;
+
+    binding &tail = builder_->get_binding_(tail_node_.stage, tail_node_.binding_idx);
+    // Just make sure that if we traverse through t=is node, we don't try to keep going
+    tail.next.invalidate();
+
+    if (head_node_.stage == invalid_graph_ref) {
+        head_node_.stage = stg;
+        head_node_.binding_idx = binding_idx;
+    }
+}
+
 
 
 graph_resource::graph_resource()
@@ -730,6 +766,35 @@ graph_resource::graph_resource(const gpu_image &img)
 graph_resource::graph_resource(const gpu_buffer &buf) 
 : type_(type::graph_buffer), buf_(buf) {
 
+}
+
+/************************* Transfer *******************************/
+transfer_operation::transfer_operation()
+: type_(type::none) {
+
+}
+
+transfer_operation::transfer_operation(graph_stage_ref ref, render_graph *builder) 
+: type_(type::none), builder_(builder), stage_ref_(ref) {
+
+}
+
+void transfer_operation::init_as_buffer_update(graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size) {
+    binding b = { 0, binding::type::buffer_transfer_dst, buf_ref };
+
+    bindings_ = bump_mem_alloc<binding>();
+    *bindings_ = b;
+
+    buffer_update_state_.data = data;
+    buffer_update_state_.offset = offset;
+    buffer_update_state_.size = size;
+
+    gpu_buffer &buf = builder_->get_buffer_(buf_ref);
+    buf.add_usage_node(stage_ref_, 0);
+}
+
+binding &transfer_operation::get_binding(uint32_t idx) {
+    return bindings_[idx];
 }
 
 
@@ -796,8 +861,11 @@ compute_pass &render_graph::add_compute_pass(const uid_string &uid) {
     return get_compute_pass_(uid.id);
 }
 
-void render_graph::add_buffer_update(const uid_string &, void *data, u32 offset, u32 size) {
+void render_graph::add_buffer_update(const uid_string &uid, void *data, u32 offset, u32 size) {
+    graph_stage_ref ref (graph_stage_ref::type::transfer, transfers_.size());
 
+    transfer_operation transfer (ref, this);
+    transfer.init_as_buffer_update(uid.id, data, offset, size);
 }
 
 void render_graph::begin() {
@@ -811,6 +879,11 @@ void render_graph::begin() {
         case graph_resource::type::graph_image: {
             resources_[r].get_image().head_node_ = { invalid_graph_ref, invalid_graph_ref };
             resources_[r].get_image().tail_node_ = { invalid_graph_ref, invalid_graph_ref };
+        } break;
+
+        case graph_resource::type::graph_buffer: {
+            resources_[r].get_buffer().head_node_ = { invalid_graph_ref, invalid_graph_ref };
+            resources_[r].get_buffer().tail_node_ = { invalid_graph_ref, invalid_graph_ref };
         } break;
 
         default:
@@ -845,6 +918,171 @@ void render_graph::begin() {
     present_info_.is_active = false;
 }
 
+void render_graph::prepare_pass_graph_stage_(graph_stage_ref stg) {
+    if (stg == graph_stage_ref_present) {
+        // Handle present case
+        gpu_image &swapchain_target = get_image_(present_info_.to_present);
+
+        // This may override the action that was previously set from the looping through bindings
+        swapchain_target.action_ = gpu_image::action_flag::to_present;
+
+        // Very unlikely that this will pass but here just in case we want to present
+        // a disk-loaded texture to the screen
+        if (!get_resource_(present_info_.to_present).was_used_) {
+            used_resources_.push_back(present_info_.to_present);
+            get_resource_(present_info_.to_present).was_used_ = true;
+        }
+    }
+    else {
+        // Handle render pass / compute pass case
+        switch (passes_[stg].get_type()) {
+            case graph_pass::graph_compute_pass: {
+                compute_pass &cp = passes_[stg].get_compute_pass();
+
+                // Loop through each binding
+                for (auto &bind : cp.bindings_) {
+                    auto &res = get_resource_(bind.rref);
+                    switch (res.get_type()) {
+                        case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
+                        case graph_resource::type::graph_buffer: res.get_buffer().update_action(bind); break;
+                        default: break;
+                    }
+
+                    if (!res.was_used_) {
+                        res.was_used_ = true;
+                        used_resources_.push_back(bind.rref);
+                    }
+                }
+            } break;
+
+            case graph_pass::graph_render_pass: {
+                render_pass &rp = passes_[stg].get_render_pass();
+
+                // Loop through each binding
+                for (auto &bind : rp.bindings_) {
+                    auto &res = get_resource_(bind.rref);
+                    switch (res.get_type()) {
+                        case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
+                        default: assert(false); break;
+                    }
+
+                    if (!res.was_used_) {
+                        res.was_used_ = true;
+                        used_resources_.push_back(bind.rref);
+                    }
+                }
+            } break;
+
+            default: break;
+        }
+    }
+}
+
+void render_graph::prepare_transfer_graph_stage_(graph_stage_ref ref) {
+    transfer_operation &op = transfers_[ref.stage_idx];
+
+    switch (op.type_) {
+    case transfer_operation::type::buffer_update: {
+        auto &bind = op.get_binding(0);
+        auto &res = get_resource_(bind.rref);
+        res.get_buffer().update_action(bind);
+
+        if (!res.was_used_) {
+            res.was_used_ = true;
+            used_resources_.push_back(bind.rref);
+        }
+    } break;
+
+    default:
+        break;
+    }
+}
+
+void render_graph::execute_pass_graph_stage_(graph_stage_ref stg, VkPipelineStageFlags &last_stage, const cmdbuf_generator::cmdbuf_info &info) {
+    if (stg == graph_stage_ref_present) {
+        gpu_image &img = get_image_(present_info_.to_present);
+
+        // Handle present stage - transition image layout
+        VkImageMemoryBarrier barrier = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .image = img.get().image_,
+            .oldLayout = img.get().current_layout_,
+            .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .srcAccessMask = img.get().current_access_,
+            .dstAccessMask = 0,
+            .subresourceRange.aspectMask = img.get().aspect_,
+            .subresourceRange.baseArrayLayer = 0,
+            .subresourceRange.baseMipLevel = 0,
+            .subresourceRange.layerCount = 1,
+            .subresourceRange.levelCount = 1
+        };
+
+        vkCmdPipelineBarrier(info.cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+        // Update image data
+        img.get().current_layout_ = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        img.get().current_access_ = 0;
+        img.get().last_used_ = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    }
+    else {
+        // Handle compute / render passes
+        switch (passes_[stg].get_type()) {
+        case graph_pass::graph_compute_pass: {
+            last_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+            compute_pass &cp = passes_[stg].get_compute_pass();
+
+            if (cp.pipeline_ == VK_NULL_HANDLE) {
+                // Actually initialize the compute pipeline
+                cp.create_();
+            }
+
+            // Issue the commands
+            cp.issue_commands_(info.cmdbuf);
+        } break;
+
+        case graph_pass::graph_render_pass: {
+            last_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+            render_pass &rp = passes_[stg].get_render_pass();
+
+            rp.issue_commands_(info.cmdbuf);
+        } break;
+
+        default: break;
+        }
+    }
+}
+
+void render_graph::execute_transfer_graph_stage_(graph_stage_ref ref, const cmdbuf_generator::cmdbuf_info &info) {
+    transfer_operation &op = transfers_[ref.stage_idx];
+    switch (op.type_) {
+    case transfer_operation::type::buffer_update: {
+        binding &b = op.bindings_[0];
+        gpu_buffer &buf = get_buffer_(b.rref);
+
+        VkBufferMemoryBarrier barrier = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            .buffer = buf.buffer_,
+            .srcAccessMask = buf.current_access_,
+            .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .offset = op.buffer_update_state_.offset,
+            .size = op.buffer_update_state_.size,
+        };
+
+        vkCmdUpdateBuffer(
+            info.cmdbuf, buf.buffer_, op.buffer_update_state_.offset, 
+            op.buffer_update_state_.size, op.buffer_update_state_.data);
+
+        buf.last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        buf.current_access_ = VK_ACCESS_TRANSFER_WRITE_BIT;
+    } break;
+
+    default:
+        break;
+    }
+}
+
 void render_graph::end(cmdbuf_generator *generator) {
     // Determine which generator to use
     if (!generator) {
@@ -864,62 +1102,11 @@ void render_graph::end(cmdbuf_generator *generator) {
 
     // First traverse through all stages in order to figure out which resources to use
     for (auto stg : recorded_stages_) {
-        if (stg == graph_stage_ref_present) {
-            // Handle present case
-            gpu_image &swapchain_target = get_image_(present_info_.to_present);
-
-            // This may override the action that was previously set from the looping through bindings
-            swapchain_target.action_ = gpu_image::action_flag::to_present;
-
-            // Very unlikely that this will pass but here just in case we want to present
-            // a disk-loaded texture to the screen
-            if (!get_resource_(present_info_.to_present).was_used_) {
-                get_resource_(present_info_.to_present).was_used_ = true;
-                used_resources_.push_back(present_info_.to_present);
-            }
+        if (stg.stage_type == graph_stage_ref::type::pass) {
+            prepare_pass_graph_stage_(stg);
         }
-        else {
-            // Handle render pass / compute pass case
-            switch (passes_[stg].get_type()) {
-            case graph_pass::graph_compute_pass: {
-                compute_pass &cp = passes_[stg].get_compute_pass();
-
-                // Loop through each binding
-                for (auto &bind : cp.bindings_) {
-                    auto &res = get_resource_(bind.rref);
-                    switch (res.get_type()) {
-                    case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
-                    case graph_resource::type::graph_buffer: res.get_buffer().update_action(bind); break;
-                    default: break;
-                    }
-
-                    if (!res.was_used_) {
-                        res.was_used_ = true;
-                        used_resources_.push_back(bind.rref);
-                    }
-                }
-            } break;
-
-            case graph_pass::graph_render_pass: {
-                render_pass &rp = passes_[stg].get_render_pass();
-
-                // Loop through each binding
-                for (auto &bind : rp.bindings_) {
-                    auto &res = get_resource_(bind.rref);
-                    switch (res.get_type()) {
-                    case graph_resource::type::graph_image: res.get_image().update_action(bind); break;
-                    default: assert(false); break;
-                    }
-
-                    if (!res.was_used_) {
-                        res.was_used_ = true;
-                        used_resources_.push_back(bind.rref);
-                    }
-                }
-            } break;
-
-            default: break;
-            }
+        else if (stg.stage_type == graph_stage_ref::type::transfer) {
+            prepare_transfer_graph_stage_(stg);
         }
     }
 
@@ -945,58 +1132,11 @@ void render_graph::end(cmdbuf_generator *generator) {
     
     // Now loop through the passes and actually issue the commands!
     for (auto stg : recorded_stages_) {
-        if (stg == graph_stage_ref_present) {
-            gpu_image &img = get_image_(present_info_.to_present);
-
-            // Handle present stage - transition image layout
-            VkImageMemoryBarrier barrier = {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .image = img.get().image_,
-                .oldLayout = img.get().current_layout_,
-                .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                .srcAccessMask = img.get().current_access_,
-                .dstAccessMask = 0,
-                .subresourceRange.aspectMask = img.get().aspect_,
-                .subresourceRange.baseArrayLayer = 0,
-                .subresourceRange.baseMipLevel = 0,
-                .subresourceRange.layerCount = 1,
-                .subresourceRange.levelCount = 1
-            };
-
-            vkCmdPipelineBarrier(info.cmdbuf, img.get().last_used_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
-
-            // Update image data
-            img.get().current_layout_ = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-            img.get().current_access_ = 0;
-            img.get().last_used_ = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        if (stg.stage_type == graph_stage_ref::type::pass) {
+            execute_pass_graph_stage_(stg, last_stage, info);
         }
-        else {
-            // Handle compute / render passes
-            switch (passes_[stg].get_type()) {
-            case graph_pass::graph_compute_pass: {
-                last_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-
-                compute_pass &cp = passes_[stg].get_compute_pass();
-
-                if (cp.pipeline_ == VK_NULL_HANDLE) {
-                    // Actually initialize the compute pipeline
-                    cp.create_();
-                }
-
-                // Issue the commands
-                cp.issue_commands_(info.cmdbuf);
-            } break;
-
-            case graph_pass::graph_render_pass: {
-                last_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-                render_pass &rp = passes_[stg].get_render_pass();
-
-                rp.issue_commands_(info.cmdbuf);
-            } break;
-
-            default: break;
-            }
+        else if (stg.stage_type == graph_stage_ref::type::transfer) {
+            execute_transfer_graph_stage_(stg, info);
         }
     }
 

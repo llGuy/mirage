@@ -1,17 +1,31 @@
 #pragma once
 
 #include "heap_array.hpp"
+#include "render_context.hpp"
 
 #include <vulkan/vulkan.h>
 
-#if 0
+enum class pso_shader_type {
+  vertex = VK_SHADER_STAGE_VERTEX_BIT,
+  geometry = VK_SHADER_STAGE_GEOMETRY_BIT,
+  fragment = VK_SHADER_STAGE_FRAGMENT_BIT
+};
+
 class pso_shader {
 public:
+    pso_shader() = default;
     pso_shader(const char *path);
 
 private:
     VkShaderModule module_;
     VkShaderStageFlags stage_;
+
+    friend class pso_config;
+};
+
+struct pso_descriptor {
+  VkDescriptorType type;
+  size_t count;
 };
 
 class pso_config {
@@ -24,16 +38,18 @@ public:
       rasterization_{},
       multisample_{},
       blending_{},
+      rendering_info_{},
       dynamic_state_{},
       depth_stencil_{},
       layouts_{},
       shader_stages_(sizeof...(shaders)),
       push_constant_size_(0),
       viewport_info_{},
+      depth_format_{(VkFormat)0},
       create_info_{} {
         shader_stages_.zero();
         set_shader_stages_(
-            makeArray<VulkanShader, AllocationType::Linear>(shaders...));
+            heap_array<pso_shader>({ shaders... }));
 
         set_default_values_();
     }
@@ -49,8 +65,7 @@ public:
         size_t push_constant_size,
         T ...layouts) {
         push_constant_size_ = push_constant_size;
-        layouts_ =
-            heap_array<VkDescriptorSetLayout>(layouts...);
+        layouts_ = heap_array<VkDescriptorSetLayout>({get_descriptor_set_layout(layouts.type, layouts.count)...});
     }
 
     void configure_vertex_input(uint32_t attrib_count, uint32_t binding_count);
@@ -64,14 +79,21 @@ public:
     void set_topology(VkPrimitiveTopology topology);
     void set_to_wireframe();
 
+    void add_color_attachment(
+        VkFormat format, 
+        VkBlendOp op = VK_BLEND_OP_MAX_ENUM,
+        VkBlendFactor src = VK_BLEND_FACTOR_MAX_ENUM,
+        VkBlendFactor dst = VK_BLEND_FACTOR_MAX_ENUM);
+
+    void add_depth_attachment(VkFormat format);
+
 private:
     void set_default_values_();
 
     void set_shader_stages_(
-        const Array<VulkanShader, AllocationType::Linear> &sources);
+        const heap_array<pso_shader> &sources);
 
-    void finish_configuration_(
-        VulkanDescriptorSetLayoutMaker &layout);
+    void finish_configuration_();
 
 private:
     VkPipelineInputAssemblyStateCreateInfo input_assembly_;
@@ -84,16 +106,34 @@ private:
     VkPipelineRasterizationStateCreateInfo rasterization_;
     VkPipelineMultisampleStateCreateInfo multisample_;
     VkPipelineColorBlendStateCreateInfo blending_;
-    heap_array<VkPipelineColorBlendAttachmentState> blend_states_;
     VkPipelineDynamicStateCreateInfo dynamic_state_;
     heap_array<VkDynamicState> dynamic_states_;
     VkPipelineDepthStencilStateCreateInfo depth_stencil_;
     heap_array<VkDescriptorSetLayout> layouts_;
     heap_array<VkPipelineShaderStageCreateInfo> shader_stages_;
+
+    VkFormat depth_format_;
+    std::vector<VkFormat> attachment_formats_;
+    VkPipelineRenderingCreateInfo rendering_info_;
+    std::vector<VkPipelineColorBlendAttachmentState> blend_states_;
+
     size_t push_constant_size_;
 
     VkGraphicsPipelineCreateInfo create_info_;
 
     VkPipelineLayout pso_layout_;
+
+    friend class pso;
 };
-#endif
+
+class pso {
+public:
+    pso() = default;
+    pso(pso_config &config);
+
+    void bind(VkCommandBuffer cmdbuf);
+
+private:
+    VkPipeline pipeline_;
+    VkPipelineLayout layout_;
+};
