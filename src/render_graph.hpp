@@ -65,7 +65,7 @@ struct clear_color {
 struct binding {
     enum type {
         // Image types
-        sampled_image, storage_image, color_attachment, depth_attachment, max_image, 
+        sampled_image, storage_image, color_attachment, depth_attachment, image_transfer_src, image_transfer_dst, max_image, 
         // Buffer types
         storage_buffer, uniform_buffer, buffer_transfer_src, buffer_transfer_dst, max_buffer,
         none
@@ -105,6 +105,10 @@ struct binding {
             return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         case type::depth_attachment:
             return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        case type::image_transfer_src:
+            return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        case type::image_transfer_dst:
+            return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         default:
             assert(false);
             return VK_IMAGE_LAYOUT_MAX_ENUM;
@@ -133,6 +137,10 @@ struct binding {
         switch (utype) {
         case type::sampled_image:
             return VK_ACCESS_SHADER_READ_BIT;
+        case type::image_transfer_src:
+            return VK_ACCESS_MEMORY_READ_BIT;
+        case type::image_transfer_dst:
+            return VK_ACCESS_MEMORY_WRITE_BIT;
         case type::storage_image:
             return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
         case type::color_attachment:
@@ -548,6 +556,9 @@ public:
 
     void init_as_buffer_update(graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size);
 
+    // For now, assume we blit the entire thing
+    void init_as_image_blit(graph_resource_ref src, graph_resource_ref dst);
+
     binding &get_binding(uint32_t idx);
 
     /*
@@ -659,6 +670,7 @@ public:
     render_pass &add_render_pass(const uid_string &);
     compute_pass &add_compute_pass(const uid_string &);
     void add_buffer_update(const uid_string &, void *data, u32 offset, u32 size);
+    void add_image_blit(const uid_string &src, const uid_string &dst);
 
     // Start recording a set of passes / commands
     void begin();

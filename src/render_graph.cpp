@@ -629,6 +629,9 @@ void gpu_image::configure(const image_info &info) {
         gpu_image &swapchain_img = builder_->get_image_(render_graph::swapchain_uids[0].id);
         extent_ = swapchain_img.extent_;
     }
+    else {
+        extent_ = info.extent;
+    }
 
     aspect_ = info.is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 
@@ -841,7 +844,6 @@ transfer_operation::transfer_operation(graph_stage_ref ref, render_graph *builde
 }
 
 void transfer_operation::init_as_buffer_update(graph_resource_ref buf_ref, void *data, uint32_t offset, uint32_t size) {
-
     type_ = type::buffer_update;
     binding b = { 0, binding::type::buffer_transfer_dst, buf_ref };
 
@@ -854,6 +856,22 @@ void transfer_operation::init_as_buffer_update(graph_resource_ref buf_ref, void 
 
     gpu_buffer &buf = builder_->get_buffer_(buf_ref);
     buf.add_usage_node_(stage_ref_, 0);
+}
+
+void transfer_operation::init_as_image_blit(graph_resource_ref src, graph_resource_ref dst) {
+    type_ = type::image_blit;
+    binding b_src = { 0, binding::type::image_transfer_src, src };
+    binding b_dst = { 1, binding::type::image_transfer_dst, dst };
+
+    bindings_ = bump_mem_alloc<binding>(2);
+    bindings_[0] = b_src;
+    bindings_[1] = b_dst;
+
+    gpu_image &src_img = builder_->get_image_(src);
+    src_img.add_usage_node_(stage_ref_, 0);
+
+    gpu_image &dst_img = builder_->get_image_(dst);
+    dst_img.add_usage_node_(stage_ref_, 1);
 }
 
 binding &transfer_operation::get_binding(uint32_t idx) {
@@ -935,6 +953,17 @@ void render_graph::add_buffer_update(const uid_string &uid, void *data, u32 offs
 
     transfer_operation &transfer = transfers_[transfers_.size() - 1];
     transfer.init_as_buffer_update(uid.id, data, offset, size);
+
+    recorded_stages_.push_back(ref);
+}
+
+void render_graph::add_image_blit(const uid_string &src, const uid_string &dst) {
+    graph_stage_ref ref (graph_stage_ref::type::transfer, transfers_.size());
+
+    transfers_.push_back(transfer_operation(ref, this));
+
+    transfer_operation &transfer = transfers_[transfers_.size() - 1];
+    transfer.init_as_image_blit(src.id, dst.id);
 
     recorded_stages_.push_back(ref);
 }
@@ -1070,6 +1099,32 @@ void render_graph::prepare_transfer_graph_stage_(graph_stage_ref ref) {
         }
     } break;
 
+    case transfer_operation::type::image_blit: {
+        { // Src
+            auto &bind = op.get_binding(0);
+
+            auto &res = get_resource_(bind.rref);
+            res.get_image().update_action_(bind);
+
+            if (!res.was_used_) {
+                res.was_used_ = true;
+                used_resources_.push_back(bind.rref);
+            }
+        }
+
+        { // Dst
+            auto &bind = op.get_binding(1);
+
+            auto &res = get_resource_(bind.rref);
+            res.get_image().update_action_(bind);
+
+            if (!res.was_used_) {
+                res.was_used_ = true;
+                used_resources_.push_back(bind.rref);
+            }
+        }
+    } break;
+
     default:
         break;
     }
@@ -1153,6 +1208,64 @@ void render_graph::execute_transfer_graph_stage_(graph_stage_ref ref, const cmdb
 
         buf.last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
         buf.current_access_ = VK_ACCESS_TRANSFER_WRITE_BIT;
+    } break;
+
+    case transfer_operation::type::image_blit: {
+        gpu_image &src = get_image_(op.bindings_[0].rref);
+        gpu_image &dst = get_image_(op.bindings_[1].rref);
+
+        // Transition layouts
+        VkImageMemoryBarrier barrier = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .image = src.get_().image_,
+            .oldLayout = src.get_().current_layout_,
+            .newLayout = op.bindings_[0].get_image_layout(),
+            .srcAccessMask = src.get_().current_access_,
+            .dstAccessMask = op.bindings_[0].get_image_access(),
+            .subresourceRange.aspectMask = src.get_().aspect_,
+            // TODO: Support non-hardcoded values for this
+            .subresourceRange.baseArrayLayer = 0,
+            .subresourceRange.baseMipLevel = 0,
+            .subresourceRange.layerCount = 1,
+            .subresourceRange.levelCount = 1
+        };
+
+        vkCmdPipelineBarrier(info.cmdbuf, src.get_().last_used_, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+        barrier.image = dst.get_().image_;
+        barrier.oldLayout = dst.get_().current_layout_;
+        barrier.newLayout = op.bindings_[1].get_image_layout();
+        barrier.srcAccessMask = dst.get_().current_access_;
+        barrier.dstAccessMask = op.bindings_[1].get_image_access();
+
+        vkCmdPipelineBarrier(info.cmdbuf, dst.get_().last_used_, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+
+        VkImageBlit region = {
+            .srcOffsets = { {}, { (int32_t)src.get_().extent_.width, (int32_t)src.get_().extent_.height, (int32_t)src.get_().extent_.depth } },
+            .dstOffsets = { {}, { (int32_t)dst.get_().extent_.width, (int32_t)dst.get_().extent_.height, (int32_t)dst.get_().extent_.depth } },
+            .srcSubresource = {
+                .layerCount = 1, .baseArrayLayer = 0,
+                .aspectMask = src.get_().aspect_, .mipLevel = 0
+            },
+            .dstSubresource = {
+                .layerCount = 1, .baseArrayLayer = 0,
+                .aspectMask = dst.get_().aspect_, .mipLevel = 0
+            }
+        };
+
+        src.get_().current_layout_ = op.bindings_[0].get_image_layout();
+        src.get_().current_access_ = op.bindings_[0].get_image_access();
+        src.get_().last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+        dst.get_().current_layout_ = op.bindings_[1].get_image_layout();
+        dst.get_().current_access_ = op.bindings_[1].get_image_access();
+        dst.get_().last_used_ = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+        vkCmdBlitImage(
+            info.cmdbuf, 
+            src.get_().image_, src.get_().current_layout_, 
+            dst.get_().image_, dst.get_().current_layout_, 
+            1, &region, VK_FILTER_LINEAR);
     } break;
 
     default:

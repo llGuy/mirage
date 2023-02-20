@@ -48,9 +48,13 @@ void run_render() {
 
     { // Example setup a compute pass (all in immediate)
         compute_pass &pass = graph->add_compute_pass(STG("compute-example"));
-        pass.set_source("basic"); // Name of the file (can use custom filename resolution
-        pass.send_data(gtime->current_time); // Can send any arbitrary data
-        pass.add_storage_image(RES("compute-target")); // Sets the render target
+        pass.set_source("basic");
+        pass.send_data(gtime->current_time);
+
+        // Set target
+        image_info target_info = { .extent = { gctx->swapchain_extent.width/2, gctx->swapchain_extent.height/2, 1 } };
+        pass.add_storage_image(RES("compute-target"), target_info);
+
         pass.add_uniform_buffer(RES("example-ubo"));
         pass.dispatch_waves(16, 16, 1, RES("compute-target"));
     }
@@ -65,8 +69,10 @@ void run_render() {
         }, triangle_pso);
     }
 
+    graph->add_image_blit(RES("compute-target"), RES("backbuffer"));
+
     // Present to the screen
-    graph->present(RES("compute-target"));
+    graph->present(RES("backbuffer"));
 
     // Finishes a series of commands
     graph->end();
