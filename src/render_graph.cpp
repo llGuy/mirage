@@ -856,6 +856,10 @@ void transfer_operation::init_as_buffer_update(graph_resource_ref buf_ref, void 
 
     gpu_buffer &buf = builder_->get_buffer_(buf_ref);
     buf.add_usage_node_(stage_ref_, 0);
+
+    if (size == 0) {
+        buffer_update_state_.size = buf.size_;
+    }
 }
 
 void transfer_operation::init_as_image_blit(graph_resource_ref src, graph_resource_ref dst) {

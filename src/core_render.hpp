@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sdf.hpp"
 #include "types.hpp"
 #include "string.hpp"
 #include "render_graph.hpp"
@@ -8,7 +9,7 @@
 
 // All renderer resources (textures, uniforms, pipelines, etc...)
 extern struct graphics_resources {
-    render_graph graph;
+    sdf_unit_array *sdf_units;
 } *ggfx;
 
 void init_core_render();

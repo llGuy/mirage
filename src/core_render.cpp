@@ -2,6 +2,7 @@
 #include "glm/trigonometric.hpp"
 #include "pipeline.hpp"
 #include "render_graph.hpp"
+#include "sdf.hpp"
 #include "time.hpp"
 #include "memory.hpp"
 #include "core_render.hpp"
@@ -9,71 +10,52 @@
 #include "vulkan/vulkan_core.h"
 
 graphics_resources *ggfx;
-pso triangle_pso;
+
+static render_graph *graph_;
 
 void init_core_render() {
     ggfx = mem_alloc<graphics_resources>();
+    graph_ = mem_alloc<render_graph>();
 
-    ggfx->graph.setup_swapchain({
+    graph_->setup_swapchain({
         .swapchain_image_count = gctx->images.size(),
         .images = gctx->images.data(),
         .image_views = gctx->image_views.data(),
         .extent = gctx->swapchain_extent
     });
 
-    { // Create triangle shader
-        pso_config triangle_pso_config("triangle.vert.spv", "triangle.frag.spv");
-        triangle_pso_config.add_color_attachment(gctx->swapchain_format);
-        triangle_pso = pso(triangle_pso_config);
-    }
+    init_sdf_units(*graph_);
 
-    { // Register example uniform buffer
-        auto &ubo = ggfx->graph.register_buffer(RES("example-ubo"));
-        ubo.configure({ .size = sizeof(float) });
-    }
+    // Register time uniform buffer
+    graph_->register_buffer(RES("time-buffer"))
+        .configure({ .size = sizeof(time_data) });
 }
 
 void run_render() {
     poll_input();
 
-    render_graph *graph = &ggfx->graph;
-
     // Starts a series of commands
-    graph->begin();
+    graph_->begin();
 
-    { // Update a UBO
-        float payload = glm::sin(gtime->current_time);
-        graph->add_buffer_update(RES("example-ubo"), &payload, 0, sizeof(float));
+    // Update SDF stuff
+    update_sdf_units(*graph_);
+
+    // Update time data
+    time_data tdata = { gtime->frame_dt, gtime->current_time };
+    graph_->add_buffer_update(RES("time-buffer"), &tdata);
+
+    { // Cast rays to SDF units
+        auto &pass = graph_->add_compute_pass(STG("sdf-cast-pass"));
+        pass.set_source("sdf_cast");
+        pass.add_storage_image(RES("sdf-cast-target"));
+        pass.add_uniform_buffer(RES("time-buffer"));
+        pass.add_uniform_buffer(RES("sdf-units-buffer"));
+        pass.dispatch_waves(16, 16, 1, RES("sdf-cast-target"));
     }
-
-    { // Example setup a compute pass (all in immediate)
-        compute_pass &pass = graph->add_compute_pass(STG("compute-example"));
-        pass.set_source("basic");
-        pass.send_data(gtime->current_time);
-
-        // Set target
-        image_info target_info = { .extent = { gctx->swapchain_extent.width/2, gctx->swapchain_extent.height/2, 1 } };
-        pass.add_storage_image(RES("compute-target"), target_info);
-
-        pass.add_uniform_buffer(RES("example-ubo"));
-        pass.dispatch_waves(16, 16, 1, RES("compute-target"));
-    }
-
-    { // Example of a render pass
-        render_pass &pass = graph->add_render_pass(STG("raster-example"));
-        pass.add_color_attachment(RES("compute-target")); // Don't clear target
-        pass.draw_commands([] (VkCommandBuffer cmdbuf, VkRect2D rect, void *data) {
-            pso &triangle_pso = *(pso *)data;
-            triangle_pso.bind(cmdbuf);
-            vkCmdDraw(cmdbuf, 3, 1, 0, 0);
-        }, triangle_pso);
-    }
-
-    graph->add_image_blit(RES("compute-target"), RES("backbuffer"));
 
     // Present to the screen
-    graph->present(RES("backbuffer"));
+    graph_->present(RES("sdf-cast-target"));
 
     // Finishes a series of commands
-    graph->end();
+    graph_->end();
 }

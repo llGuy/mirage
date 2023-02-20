@@ -561,10 +561,9 @@ public:
 
     binding &get_binding(uint32_t idx);
 
-    /*
+    /* TODO
     void init_as_buffer_copy(graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
     void init_as_image_copy(graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
-    void init_as_image_blit(graph_resource_ref buf_ref, uint32_t offset, uint32_t size);
     */
 
 private:
@@ -669,7 +668,7 @@ public:
     // This will schedule the passes and potentially allocate and create them
     render_pass &add_render_pass(const uid_string &);
     compute_pass &add_compute_pass(const uid_string &);
-    void add_buffer_update(const uid_string &, void *data, u32 offset, u32 size);
+    void add_buffer_update(const uid_string &, void *data, u32 offset = 0, u32 size = 0);
     void add_image_blit(const uid_string &src, const uid_string &dst);
 
     // Start recording a set of passes / commands
