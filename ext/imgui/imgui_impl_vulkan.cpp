@@ -90,7 +90,8 @@ struct ImGuiViewportDataVulkan
 
 // Vulkan data
 static ImGui_ImplVulkan_InitInfo g_VulkanInitInfo = {};
-static VkRenderPass             g_RenderPass = VK_NULL_HANDLE;
+// static VkRenderPass             g_RenderPass = VK_NULL_HANDLE;
+static VkFormat                 g_BackbufferFormat;
 static VkDeviceSize             g_BufferMemoryAlignment = 256;
 static VkPipelineCreateFlags    g_PipelineCreateFlags = 0x00;
 static VkDescriptorSetLayout    g_DescriptorSetLayout = VK_NULL_HANDLE;
@@ -781,7 +782,7 @@ static void ImGui_ImplVulkan_CreatePipelineLayout(VkDevice device, const VkAlloc
     check_vk_result(err);
 }
 
-static void ImGui_ImplVulkan_CreatePipeline(VkDevice device, const VkAllocationCallbacks* allocator, VkPipelineCache pipelineCache, VkRenderPass renderPass, VkSampleCountFlagBits MSAASamples, VkPipeline* pipeline, uint32_t subpass)
+static void ImGui_ImplVulkan_CreatePipeline(VkDevice device, const VkAllocationCallbacks* allocator, VkPipelineCache pipelineCache, VkFormat backbufferFormat, VkSampleCountFlagBits MSAASamples, VkPipeline* pipeline, uint32_t subpass)
 {
     ImGui_ImplVulkan_CreateShaderModules(device, allocator);
 
@@ -866,8 +867,16 @@ static void ImGui_ImplVulkan_CreatePipeline(VkDevice device, const VkAllocationC
 
     ImGui_ImplVulkan_CreatePipelineLayout(device, allocator);
 
+    VkPipelineRenderingCreateInfo rendering_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .pNext = nullptr,
+        .colorAttachmentCount = 1,
+        .pColorAttachmentFormats = &backbufferFormat
+    };
+
     VkGraphicsPipelineCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    info.pNext = &rendering_info;
     info.flags = g_PipelineCreateFlags;
     info.stageCount = 2;
     info.pStages = stage;
@@ -880,7 +889,7 @@ static void ImGui_ImplVulkan_CreatePipeline(VkDevice device, const VkAllocationC
     info.pColorBlendState = &blend_info;
     info.pDynamicState = &dynamic_state;
     info.layout = g_PipelineLayout;
-    info.renderPass = renderPass;
+    info.renderPass = VK_NULL_HANDLE;
     info.subpass = subpass;
     VkResult err = vkCreateGraphicsPipelines(device, pipelineCache, 1, &info, allocator, pipeline);
     check_vk_result(err);
@@ -953,7 +962,7 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
         check_vk_result(err);
     }
 
-    ImGui_ImplVulkan_CreatePipeline(v->Device, v->Allocator, v->PipelineCache, g_RenderPass, v->MSAASamples, &g_Pipeline, g_Subpass);
+    ImGui_ImplVulkan_CreatePipeline(v->Device, v->Allocator, v->PipelineCache, g_BackbufferFormat, v->MSAASamples, &g_Pipeline, g_Subpass);
 
     return true;
 }
@@ -1011,7 +1020,7 @@ bool    ImGui_ImplVulkan_LoadFunctions(PFN_vkVoidFunction(*loader_func)(const ch
     return true;
 }
 
-bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info, VkRenderPass render_pass)
+bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info, VkFormat backbuffer_format)
 {
     IM_ASSERT(g_FunctionsLoaded && "Need to call ImGui_ImplVulkan_LoadFunctions() if IMGUI_IMPL_VULKAN_NO_PROTOTYPES or VK_NO_PROTOTYPES are set!");
 
@@ -1028,10 +1037,11 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info, VkRenderPass rend
     IM_ASSERT(info->DescriptorPool != VK_NULL_HANDLE);
     IM_ASSERT(info->MinImageCount >= 2);
     IM_ASSERT(info->ImageCount >= info->MinImageCount);
-    IM_ASSERT(render_pass != VK_NULL_HANDLE);
+    // IM_ASSERT(render_pass != VK_NULL_HANDLE);
 
     g_VulkanInitInfo = *info;
-    g_RenderPass = render_pass;
+    // g_RenderPass = render_pass;
+    g_BackbufferFormat = backbuffer_format;
     g_Subpass = info->Subpass;
 
     ImGui_ImplVulkan_CreateDeviceObjects();

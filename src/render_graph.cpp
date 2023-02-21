@@ -378,6 +378,7 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf) {
             img.get_().last_used_ = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 
             descriptor_sets[i] = img.get_().get_descriptor_set_(b.utype);
+            assert(descriptor_sets[i] != VK_NULL_HANDLE);
         } break;
 
         case graph_resource::type::graph_buffer: {
@@ -397,6 +398,7 @@ void compute_pass::issue_commands_(VkCommandBuffer cmdbuf) {
             buf.last_used_ = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 
             descriptor_sets[i] = buf.get_descriptor_set_(b.utype);
+            assert(descriptor_sets[i] != VK_NULL_HANDLE);
         } break;
 
         default:
@@ -623,7 +625,7 @@ gpu_image &gpu_image::get_() {
     return *this;
 }
 
-void gpu_image::configure(const image_info &info) {
+gpu_image &gpu_image::configure(const image_info &info) {
     // This means that we inherit swapchain resolution
     if (info.extent.width == 0 && info.extent.height == 0 && info.extent.depth == 0) {
         gpu_image &swapchain_img = builder_->get_image_(render_graph::swapchain_uids[0].id);
@@ -650,9 +652,10 @@ void gpu_image::configure(const image_info &info) {
     }
 
     // TODO: Layer counts and stuff...
+    return *this;
 }
 
-void gpu_image::alloc() {
+gpu_image &gpu_image::alloc() {
     VkImageCreateInfo image_create_info = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .flags = 0,
@@ -686,6 +689,8 @@ void gpu_image::alloc() {
     };
 
     vkCreateImageView(gctx->device, &view_create_info, nullptr, &image_view_);
+
+    return *this;
 }
 
 gpu_buffer::gpu_buffer(render_graph *graph) 
@@ -725,7 +730,7 @@ void gpu_buffer::apply_action_() {
     }
 }
 
-void gpu_buffer::configure(const buffer_info &info) {
+gpu_buffer &gpu_buffer::configure(const buffer_info &info) {
     switch (info.type) {
     case binding::type::storage_buffer: usage_ |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; break;
     case binding::type::uniform_buffer: usage_ |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT; break;
@@ -733,9 +738,11 @@ void gpu_buffer::configure(const buffer_info &info) {
     }
 
     size_ = info.size;
+
+    return *this;
 }
 
-void gpu_buffer::alloc() {
+gpu_buffer &gpu_buffer::alloc() {
     VkBufferCreateInfo buffer_create_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .flags = 0,
@@ -748,6 +755,8 @@ void gpu_buffer::alloc() {
 
     u32 allocated_size = 0;
     buffer_memory_ = allocate_buffer_memory(buffer_, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    return *this;
 }
 
 void gpu_buffer::add_usage_node_(graph_stage_ref stg, uint32_t binding_idx) {
@@ -818,17 +827,17 @@ VkDescriptorSet gpu_buffer::get_descriptor_set_(binding::type utype) {
 
 
 graph_resource::graph_resource()
-: type_(graph_resource::type::none) {
+: type_(graph_resource::type::none), was_used_(false) {
 
 }
 
 graph_resource::graph_resource(const gpu_image &img) 
-: type_(type::graph_image), img_(img) {
+: type_(type::graph_image), img_(img), was_used_(false) {
 
 }
 
 graph_resource::graph_resource(const gpu_buffer &buf) 
-: type_(type::graph_buffer), buf_(buf) {
+: type_(type::graph_buffer), buf_(buf), was_used_(false) {
 
 }
 
@@ -1206,6 +1215,10 @@ void render_graph::execute_transfer_graph_stage_(graph_stage_ref ref, const cmdb
             .size = op.buffer_update_state_.size,
         };
 
+        assert(buf.buffer_ != VK_NULL_HANDLE);
+
+        vkCmdPipelineBarrier(info.cmdbuf, buf.last_used_, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+
         vkCmdUpdateBuffer(
             info.cmdbuf, buf.buffer_, op.buffer_update_state_.offset, 
             op.buffer_update_state_.size, op.buffer_update_state_.data);
@@ -1415,4 +1428,39 @@ void present_cmdbuf_generator::submit_command_buffer(const cmdbuf_generator::cmd
     // Present to screen
     present_swapchain_image(render_finished_semaphores_[current_frame_], cmd.swapchain_idx);
     current_frame_ = (current_frame_ + 1) % max_frames_in_flight_;
+}
+
+cmdbuf_generator::cmdbuf_info single_cmdbuf_generator::get_command_buffer() {
+    VkCommandBuffer cmdbuf;
+
+    VkCommandBufferAllocateInfo command_buffer_info = {};
+    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_info.commandBufferCount = 1;
+    command_buffer_info.commandPool = gctx->command_pool;
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    vkAllocateCommandBuffers(gctx->device, &command_buffer_info, &cmdbuf);
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+
+    vkBeginCommandBuffer(cmdbuf, &begin_info);
+
+    return {.cmdbuf = cmdbuf};
+}
+
+void single_cmdbuf_generator::submit_command_buffer(const cmdbuf_info &info, VkPipelineStageFlags stage) {
+    vkEndCommandBuffer(info.cmdbuf);
+
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &info.cmdbuf,
+        .waitSemaphoreCount = 0,
+        .signalSemaphoreCount = 0,
+        .pWaitDstStageMask = nullptr
+    };
+
+    vkQueueSubmit(gctx->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
 }

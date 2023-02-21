@@ -1,6 +1,7 @@
 #version 450
 
 #include "sdf.glsl"
+#include "viewer.glsl"
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -20,6 +21,10 @@ layout (set = 2, binding = 0) uniform sdf_unit_data {
     sdf_unit sub_units[max_sdf_unit_count];
     sdf_unit add_units[max_sdf_unit_count];
 } usdf_units;
+
+layout (set = 3, binding = 0) uniform viewer_data {
+    viewer_desc data;
+} uviewer;
 
 float op_union(float d1, float d2) {
     return min(d1, d2);

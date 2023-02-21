@@ -3,6 +3,7 @@
 #include "sdf.hpp"
 #include "types.hpp"
 #include "string.hpp"
+#include "viewer.hpp"
 #include "render_graph.hpp"
 
 #include <vulkan/vulkan.h>
@@ -10,6 +11,9 @@
 // All renderer resources (textures, uniforms, pipelines, etc...)
 extern struct graphics_resources {
     sdf_unit_array *sdf_units;
+
+    // Current viewer - perhaps some system will determine which agent to bind this to
+    viewer_desc viewer;
 } *ggfx;
 
 void init_core_render();

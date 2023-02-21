@@ -1,3 +1,4 @@
+#include <vector>
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
@@ -8,7 +9,14 @@
 #include "debug_overlay.hpp"
 #include "render_context.hpp"
 
-#if 0
+struct debug_overlay_client {
+    const char *name;
+    bool open_by_default;
+    debug_overlay_proc proc;
+};
+
+static std::vector<debug_overlay_client> clients_;
+
 static void imgui_callback_(VkResult result) {
     (void)result;
 }
@@ -19,45 +27,6 @@ void init_debug_overlay() {
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO(); (void)io;
     ImGui::StyleColorsDark();
-
-    // We won't clear the contents of the framebuffer
-    VkAttachmentDescription attachment = {};
-    attachment.format = gctx->swapchain_format;
-    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-    VkAttachmentReference color_attachment = {};
-    color_attachment.attachment = 0;
-    color_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass = {};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &color_attachment;
-
-    VkSubpassDependency dependency = {};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-    VkRenderPassCreateInfo info = {};
-    info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    info.attachmentCount = 1;
-    info.pAttachments = &attachment;
-    info.subpassCount = 1;
-    info.pSubpasses = &subpass;
-    info.dependencyCount = 1;
-    info.pDependencies = &dependency;
-
-    VK_CHECK(vkCreateRenderPass(gctx->device, &info, nullptr, &gctx->imgui_render_pass));
 
     ImGui_ImplGlfw_InitForVulkan(window, true);
     ImGui_ImplVulkan_InitInfo init_info = {};
@@ -72,48 +41,45 @@ void init_debug_overlay() {
     init_info.MinImageCount = gctx->images.size();
     init_info.ImageCount = gctx->images.size();
     init_info.CheckVkResultFn = &imgui_callback_;
-    ImGui_ImplVulkan_Init(&init_info, gctx->imgui_render_pass);
+    ImGui_ImplVulkan_Init(&init_info, gctx->swapchain_format);
 
     ImGui::StyleColorsDark();
 
-    VkCommandBuffer command_buffer;
-    VkCommandBufferAllocateInfo command_buffer_info = {};
-    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    command_buffer_info.commandBufferCount = 1;
-    command_buffer_info.commandPool = gctx->command_pool;
-    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    vkAllocateCommandBuffers(gctx->device, &command_buffer_info, &command_buffer);
+    single_cmdbuf_generator single_generator;
+    auto cmdbuf_info = single_generator.get_command_buffer();
 
-    render_graph graph (command_buffer, render_graph::one_time);
+    ImGui_ImplVulkan_CreateFontsTexture(cmdbuf_info.cmdbuf);
 
-    ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
-
-    graph.submit(gctx->graphics_queue, VK_NULL_HANDLE, VK_NULL_HANDLE,
-        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_NULL_HANDLE);
+    single_generator.submit_command_buffer(cmdbuf_info, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 }
 
-void render_debug_overlay(render_graph &graph) {
-    // Start a render pass
-
-
+void render_debug_overlay(VkCommandBuffer cmdbuf) {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
     // General stuff
-    ImGui::Begin("General");
-    ImGui::Text("Framerate: %.1f", ImGui::GetIO().Framerate);
+    ImGui::Begin("Debug Overlay");
 
-#if 0
-    for (uint32_t i = 0; i < g_ctx->debug.ui_proc_count; ++i) {
-        (g_ctx->debug.ui_procs[i])();
+    for (auto c : clients_) {
+        ImGuiTreeNodeFlags flags = 0;
+        if (c.open_by_default) {
+            flags |= ImGuiTreeNodeFlags_DefaultOpen;
+        }
+
+        if (ImGui::TreeNodeEx(c.name, flags)) {
+            c.proc();
+            ImGui::TreePop();
+        }
     }
-#endif
 
     ImGui::End();
 
     ImGui::Render();
 
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graph.cmdbuf());
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdbuf);
 }
-#endif
+
+void register_debug_overlay_client(const char *name, debug_overlay_proc proc, bool open_by_default) {
+    clients_.push_back({ .name = name, .proc = proc, .open_by_default = open_by_default });
+}

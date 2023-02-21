@@ -28,3 +28,5 @@ using iv3 = glm::ivec3;
 using iv4 = glm::ivec4;
 
 using q4 = glm::quat;
+
+using m4x4 = glm::mat4;

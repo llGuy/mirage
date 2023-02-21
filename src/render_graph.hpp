@@ -195,9 +195,8 @@ public:
 
     using draw_commands_proc = void(*)(VkCommandBuffer cmdbuf, VkRect2D rect, void *aux);
 
-    template <typename Aux>
-    void draw_commands(draw_commands_proc draw_proc, Aux &aux) {
-        draw_commands_(draw_proc, (void*)&aux);
+    void draw_commands(draw_commands_proc draw_proc, void *aux) {
+        draw_commands_(draw_proc, aux);
     }
 
 private:
@@ -372,10 +371,10 @@ public:
 
     gpu_buffer(render_graph *graph);
 
-    void configure(const buffer_info &i);
+    gpu_buffer &configure(const buffer_info &i);
 
     // Actually allocates the memory and creates the resource
-    void alloc();
+    gpu_buffer &alloc();
 
 private:
     void update_action_(const binding &b);
@@ -421,9 +420,8 @@ public:
 
     gpu_image();
 
-    void configure(const image_info &i);
-
-    void alloc();
+    gpu_image &configure(const image_info &i);
+    gpu_image &alloc();
 
 private:
     gpu_image(render_graph *);
@@ -501,6 +499,7 @@ public:
 
     graph_resource &operator=(graph_resource &&other) {
         type_ = other.type_;
+        was_used_ = other.was_used_;
         switch (type_) {
             case graph_image: img_ = std::move(other.img_); break;
             case graph_buffer: buf_ = std::move(other.buf_); break;
@@ -512,6 +511,7 @@ public:
 
     graph_resource(graph_resource &&other) {
         type_ = other.type_;
+        was_used_ = other.was_used_;
         switch (type_) {
             case graph_image: img_ = std::move(other.img_); break;
             case graph_buffer: buf_ = std::move(other.buf_); break;
@@ -642,9 +642,6 @@ class single_cmdbuf_generator : public cmdbuf_generator {
 public:
     cmdbuf_info get_command_buffer() override;
     void submit_command_buffer(const cmdbuf_info &info, VkPipelineStageFlags stage) override;
-
-private:
-
 };
 
 class render_graph {
