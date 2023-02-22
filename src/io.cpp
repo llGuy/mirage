@@ -140,6 +140,10 @@ void init_io_raw() {
     register_debug_overlay_client("IO", [] () {
         ImGui::Text("Cursor: %d %d", cursor_.cursor_pos.x, cursor_.cursor_pos.y);
     });
+
+    double x, y;
+    glfwGetCursorPos(gctx->window, &x, &y);
+    cursor_.cursor_pos = iv2((int)x, (int)y);
 }
 
 void tick_io_raw() {

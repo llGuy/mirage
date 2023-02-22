@@ -1,4 +1,5 @@
 #include "bump_alloc.h"
+#include "debug_overlay.hpp"
 #include "io.hpp"
 #include "memory.hpp"
 #include "time.hpp"
@@ -14,7 +15,9 @@ int main(int argc, char **argv) {
 
     while (is_running()) {
         tick_io_raw();
-        tick_debug_viewer();
+
+        if (!overlay_has_focus())
+            tick_debug_viewer();
         run_render();
         bump_clear();
         end_frame_time();

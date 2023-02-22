@@ -21,7 +21,7 @@ struct viewer_desc {
     f32 far;
 
     void tick(iv2 viewport_res) {
-        near = 0.1f;
+        near = 1.0f;
         far = 100000.0f;
         aspect_ratio = (float)viewport_res.x / (float)viewport_res.y;
 

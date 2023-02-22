@@ -16,6 +16,7 @@ struct debug_overlay_client {
 };
 
 static std::vector<debug_overlay_client> clients_;
+static bool has_focus_;
 
 static void imgui_callback_(VkResult result) {
     (void)result;
@@ -61,6 +62,8 @@ void render_debug_overlay(VkCommandBuffer cmdbuf) {
     // General stuff
     ImGui::Begin("Debug Overlay");
 
+    has_focus_ = ImGui::IsWindowFocused();
+
     for (auto c : clients_) {
         ImGuiTreeNodeFlags flags = 0;
         if (c.open_by_default) {
@@ -82,4 +85,8 @@ void render_debug_overlay(VkCommandBuffer cmdbuf) {
 
 void register_debug_overlay_client(const char *name, debug_overlay_proc proc, bool open_by_default) {
     clients_.push_back({ .name = name, .proc = proc, .open_by_default = open_by_default });
+}
+
+bool overlay_has_focus() {
+    return has_focus_;
 }

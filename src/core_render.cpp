@@ -31,8 +31,8 @@ void init_core_render() {
     init_debug_overlay();
 
     // Initialize default camera information
-    ggfx->viewer.wposition = v3(0.0f, 4.0f, 8.0f);
-    ggfx->viewer.wview_dir = glm::normalize(v3(0.0f, -1.8f, -3.5f));
+    ggfx->viewer.wposition = v3(3.2f, 4.0f, 7.7f);
+    ggfx->viewer.wview_dir = glm::normalize(v3(-0.377f, -0.455f, -0.806f));
     ggfx->viewer.wup = v3(0.0f, 1.0f, 0.0f);
 
     // Register time uniform buffer
@@ -47,6 +47,16 @@ void init_core_render() {
     register_debug_overlay_client("Frame Information", 
         [] (){
             ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+        }, true);
+
+    // Register viewer debug overlay
+    register_debug_overlay_client("Viewer", 
+        [] (){
+            ImGui::Text("Position: %.1f %.1f %.1f", 
+                ggfx->viewer.wposition.x, ggfx->viewer.wposition.y, ggfx->viewer.wposition.z);
+
+            ImGui::Text("View Direction: %f %f %f", 
+                ggfx->viewer.wview_dir.x, ggfx->viewer.wview_dir.y, ggfx->viewer.wview_dir.z);
         }, true);
 }
 
