@@ -6,7 +6,7 @@
 #include <glm/glm.hpp>
 
 void tick_debug_viewer() {
-    ggfx->viewer.fov = glm::radians(60.0f);
+    // ggfx->viewer.fov = glm::radians(60.0f);
 
     if (get_button(button_type::mouse_left).is_down) {
         v3 up = ggfx->viewer.wup;

@@ -2,6 +2,7 @@
 
 #include "types.hpp"
 #include "render_graph.hpp"
+#include "debug_overlay.hpp"
 
 constexpr u32 max_sdf_unit_count = 32;
 
@@ -24,7 +25,16 @@ struct sdf_unit {
     v4 scale;
     u32 type;
     u32 op;
-    u32 pad[2];
+
+    u32 manipulator;
+    u32 pad;
+};
+
+struct sdf_manipulator {
+    ImGuizmo::OPERATION op;
+    m4x4 tx;
+    u32 shape_op;
+    u32 idx;
 };
 
 struct sdf_unit_array {
@@ -34,6 +44,9 @@ struct sdf_unit_array {
 
     sdf_unit sub_data[max_sdf_unit_count];
     sdf_unit add_data[max_sdf_unit_count];
+
+    std::vector<sdf_manipulator> manipulators;
+    s32 selected_manipulator;
 };
 
 void init_sdf_units(render_graph &graph);

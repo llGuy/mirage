@@ -13,6 +13,7 @@ include_directories("${CMAKE_SOURCE_DIR}/ext/stb")
 include_directories("${CMAKE_SOURCE_DIR}/ext/glm")
 include_directories("${CMAKE_SOURCE_DIR}/ext/imgui/")
 include_directories("${CMAKE_SOURCE_DIR}/ext/imgui-console/include")
+include_directories("${CMAKE_SOURCE_DIR}/ext/ImGuizmo")
 
 find_package(Vulkan)
 
@@ -23,8 +24,10 @@ if (Vulkan_FOUND)
 endif()
 
 file(GLOB_RECURSE IMGUI_SOURCES "ext/imgui/*.cpp" "ext/imgui/*.h")
+file(GLOB IMGUIZMO_SOURCES "ext/ImGuizmo/*.cpp" "ext/ImGuizmo/*.h")
 add_library(imgui "${IMGUI_SOURCES}")
+add_library(imguizmo "${IMGUIZMO_SOURCES}")
 
-target_link_libraries(mirage PUBLIC "pthread" "glfw" "imgui")
+target_link_libraries(mirage PUBLIC "pthread" "glfw" "imgui" "imguizmo")
 
 target_compile_definitions(mirage PUBLIC MIRAGE_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")

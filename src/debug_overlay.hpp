@@ -1,5 +1,8 @@
 #pragma once
 
+#include <imgui.h>
+#include <ImGuizmo.h>
+
 #include "render_graph.hpp"
 
 // Anything that wants debug overlay information should use this procedure

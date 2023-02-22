@@ -25,7 +25,7 @@ struct viewer_desc {
         far = 100000.0f;
         aspect_ratio = (float)viewport_res.x / (float)viewport_res.y;
 
-        projection = glm::perspective(fov, aspect_ratio, near, far);
+        projection = glm::perspective(glm::radians(fov), aspect_ratio, near, far);
         view = glm::lookAt(wposition, wposition + wview_dir, wup);
         inverse_projection = glm::inverse(projection);
         inverse_view = glm::inverse(view);

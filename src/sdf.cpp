@@ -1,7 +1,9 @@
 #include "sdf.hpp"
+#include "debug_overlay.hpp"
 #include "time.hpp"
 #include "memory.hpp"
 #include "core_render.hpp"
+#include <glm/gtx/transform.hpp>
 
 /* Divide the space into voxels (maybe in frustum space),
  * Each voxel/froxel stores an array of the sdf_units which
@@ -11,14 +13,28 @@ static constexpr u32 max_sdf_unit_data_size_() {
     return sizeof(u32) + 2 * max_sdf_unit_count * sizeof(sdf_unit);
 }
 
+static u32 add_manipulator_(const sdf_unit &u, u32 i) {
+    u32 idx = ggfx->sdf_units->manipulators.size();
+    ggfx->sdf_units->manipulators.push_back({ 
+        ImGuizmo::TRANSLATE,
+        glm::translate(v3(u.position)) * glm::scale(v3(u.scale)),
+        u.op, i
+    });
+    return idx;
+}
+
 static void add_sdf_unit_(const sdf_unit &u) {
     switch (u.op) {
     case sdf_smooth_add: {
-        ggfx->sdf_units->add_data[ggfx->sdf_units->add_count++] = u;
+        u32 idx = ggfx->sdf_units->add_count++;
+        ggfx->sdf_units->add_data[idx] = u;
+        ggfx->sdf_units->add_data[idx].manipulator = add_manipulator_(u, idx);
     } break;
 
     case sdf_smooth_sub: {
-        ggfx->sdf_units->sub_data[ggfx->sdf_units->sub_count++] = u;
+        u32 idx = ggfx->sdf_units->add_count++;
+        ggfx->sdf_units->sub_data[idx] = u;
+        ggfx->sdf_units->sub_data[idx].manipulator = add_manipulator_(u, idx);
     } break;
 
     default: assert(false);
@@ -39,32 +55,57 @@ static sdf_unit *get_sdf_unit_(op_type type, u32 idx) {
     }
 }
 
+static void sdf_manipulator_() {
+    ImGuiIO &io = ImGui::GetIO();
+
+    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+
+    for (int i = 0; i < ggfx->sdf_units->manipulators.size(); ++i) {
+        sdf_manipulator *m = &ggfx->sdf_units->manipulators[i];
+        sdf_unit *u;
+
+        if (m->shape_op == sdf_smooth_add)
+            u = &ggfx->sdf_units->add_data[m->idx];
+        else
+            u = &ggfx->sdf_units->sub_data[m->idx];
+
+        // If we selected this unit, render manipulator
+        if (i == ggfx->sdf_units->selected_manipulator) {
+            // ImGuizmo::Manipulate(&viewer.view[0][0], &viewer.projection[0][0], op, mode, &tx[0][0]);
+        }
+    }
+}
+
 void init_sdf_units(render_graph &graph) {
     ggfx->sdf_units = mem_alloc<sdf_unit_array>();
 
+    ggfx->sdf_units->selected_manipulator = -1;
+
     // Hardcode the sdf_units
     add_sdf_unit_({
-        v4(-1.0, 0.0, 1.0, 1.0), v4(0.6, 0.2, 0.7, 0.55),
-        sdf_sphere, sdf_smooth_add
+        .position = v4(-1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.55),
+        .type = sdf_sphere, .op = sdf_smooth_add
     });
 
     add_sdf_unit_({
-        v4(-1.0, 0.0, 1.0, 1.0), v4(0.6, 0.2, 0.7, 0.1),
-        sdf_cube, sdf_smooth_add
+        .position = v4(-1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.1),
+        .type = sdf_cube, .op = sdf_smooth_add
     });
 
     add_sdf_unit_({
-        v4(1.0, 0.0, 1.0, 1.0), v4(0.6, 0.2, 0.7, 0.55),
-        sdf_sphere, sdf_smooth_add
+        .position = v4(1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.55),
+        .type = sdf_sphere, .op = sdf_smooth_add
     });
 
     add_sdf_unit_({
-        v4(1.0, 0.0, 1.0, 1.0), v4(0.6, 0.2, 0.7, 0.1),
-        sdf_cube, sdf_smooth_add
+        .position = v4(1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.1),
+        .type = sdf_cube, .op = sdf_smooth_add
     });
 
     graph.register_buffer(RES("sdf-units-buffer"))
         .configure({ .size = max_sdf_unit_data_size_() });
+
+    register_debug_overlay_client("SDF Units", sdf_manipulator_);
 }
 
 void update_sdf_units(render_graph &graph) {
