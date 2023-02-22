@@ -1,5 +1,7 @@
 #include "sdf.hpp"
+#include "ImGuizmo.h"
 #include "debug_overlay.hpp"
+#include "imgui.h"
 #include "time.hpp"
 #include "memory.hpp"
 #include "core_render.hpp"
@@ -60,6 +62,14 @@ static void sdf_manipulator_() {
 
     ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
 
+    viewer_desc &viewer = ggfx->viewer;
+
+    /* Add an SDF */
+
+    /* SDF List - select which to manipulate */
+    char sdf_name[] = "- sdf0";
+    ImGui::Text("SDF List:");
+
     for (int i = 0; i < ggfx->sdf_units->manipulators.size(); ++i) {
         sdf_manipulator *m = &ggfx->sdf_units->manipulators[i];
         sdf_unit *u;
@@ -69,9 +79,23 @@ static void sdf_manipulator_() {
         else
             u = &ggfx->sdf_units->sub_data[m->idx];
 
+        sdf_name[5] = '0' + i;
+        if (ImGui::Selectable(sdf_name)) {
+            ggfx->sdf_units->selected_manipulator = i;
+        }
+
         // If we selected this unit, render manipulator
         if (i == ggfx->sdf_units->selected_manipulator) {
-            // ImGuizmo::Manipulate(&viewer.view[0][0], &viewer.projection[0][0], op, mode, &tx[0][0]);
+            m4x4 tx = glm::translate(v3(u->position)) * glm::scale(v3(u->scale));
+
+            ImGuizmo::SetDrawlist(ImGui::GetForegroundDrawList());
+
+            ImGuizmo::Manipulate(&viewer.view[0][0], &viewer.projection[0][0], m->op, ImGuizmo::WORLD, &tx[0][0]);
+
+            float translate[3], rotate[3], scale[3];
+            ImGuizmo::DecomposeMatrixToComponents(&tx[0][0], translate, rotate, scale);
+
+            u->position = v4(translate[0], translate[1], translate[2], 1.0f);
         }
     }
 }
