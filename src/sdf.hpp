@@ -7,7 +7,7 @@
 constexpr u32 max_sdf_unit_count = 32;
 
 enum sdf_type {
-    sdf_sphere, sdf_cube
+    sdf_sphere, sdf_cube, sdf_type_none
 };
 
 enum op_type {
@@ -16,7 +16,8 @@ enum op_type {
     sdf_intersect,
     sdf_smooth_add,
     sdf_smooth_sub,
-    sdf_smooth_intersect
+    sdf_smooth_intersect,
+    op_type_none
 };
 
 struct sdf_unit {
@@ -31,7 +32,6 @@ struct sdf_unit {
 };
 
 struct sdf_manipulator {
-    ImGuizmo::OPERATION op;
     m4x4 tx;
     u32 shape_op;
     u32 idx;
@@ -47,6 +47,10 @@ struct sdf_unit_array {
 
     std::vector<sdf_manipulator> manipulators;
     s32 selected_manipulator;
+    op_type selected_op;
+    sdf_type selected_shape;
+    ImGuizmo::OPERATION manip_op;
+    int manip_op_idx;
 };
 
 void init_sdf_units(render_graph &graph);

@@ -18,7 +18,6 @@ static constexpr u32 max_sdf_unit_data_size_() {
 static u32 add_manipulator_(const sdf_unit &u, u32 i) {
     u32 idx = ggfx->sdf_units->manipulators.size();
     ggfx->sdf_units->manipulators.push_back({ 
-        ImGuizmo::TRANSLATE,
         glm::translate(v3(u.position)) * glm::scale(v3(u.scale)),
         u.op, i
     });
@@ -64,7 +63,24 @@ static void sdf_manipulator_() {
 
     viewer_desc &viewer = ggfx->viewer;
 
+    if (ImGui::Button("Add SDF Unit")) {
+        add_sdf_unit_({
+            .position = v4(0.0, 0.0, 1.0, 1.0), .scale = v4(0.5f, 0.5f, 0.5f, 0.55),
+            .type = ggfx->sdf_units->selected_shape, .op = ggfx->sdf_units->selected_op
+        });
+    }
+
     /* Add an SDF */
+    const char *shape_names[] = { "Sphere", "Cube" };
+    ImGui::Combo("Shape", (int *)&ggfx->sdf_units->selected_shape, shape_names, (int)sdf_type_none);
+
+    const char *operation_names[] = { "Add", "Sub", "Intersect", "Smooth Add", "Smooth Sub", "Smooth Intersect" };
+    ImGui::Combo("Operation", (int *)&ggfx->sdf_units->selected_op, operation_names, (int)op_type_none);
+
+    ImGuizmo::OPERATION manip_ops[] = { ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE };
+    const char *manip_names[] = { "Translate", "Rotate", "Scale" };
+    ImGui::Combo("Manipulation", &ggfx->sdf_units->manip_op_idx, manip_names, 3);
+    ggfx->sdf_units->manip_op = manip_ops[ggfx->sdf_units->manip_op_idx];
 
     /* SDF List - select which to manipulate */
     char sdf_name[] = "- sdf0";
@@ -90,12 +106,13 @@ static void sdf_manipulator_() {
 
             ImGuizmo::SetDrawlist(ImGui::GetForegroundDrawList());
 
-            ImGuizmo::Manipulate(&viewer.view[0][0], &viewer.projection[0][0], m->op, ImGuizmo::WORLD, &tx[0][0]);
+            ImGuizmo::Manipulate(&viewer.view[0][0], &viewer.projection[0][0], ggfx->sdf_units->manip_op, ImGuizmo::WORLD, &tx[0][0]);
 
             float translate[3], rotate[3], scale[3];
             ImGuizmo::DecomposeMatrixToComponents(&tx[0][0], translate, rotate, scale);
 
             u->position = v4(translate[0], translate[1], translate[2], 1.0f);
+            u->scale = v4(scale[0], scale[1], scale[2], u->scale.w);
         }
     }
 }
@@ -104,6 +121,7 @@ void init_sdf_units(render_graph &graph) {
     ggfx->sdf_units = mem_alloc<sdf_unit_array>();
 
     ggfx->sdf_units->selected_manipulator = -1;
+    ggfx->sdf_units->selected_op = sdf_smooth_add;
 
     // Hardcode the sdf_units
     add_sdf_unit_({
