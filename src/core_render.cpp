@@ -48,6 +48,7 @@ void init_core_render() {
     register_debug_overlay_client("Frame Information", 
         [] (){
             ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+            ImGui::SliderFloat("Max FPS", &gtime->max_fps, 30.0f, 120.0f);
         }, true);
 
     // Register viewer debug overlay

@@ -33,7 +33,7 @@ static void add_sdf_unit_(const sdf_unit &u) {
     } break;
 
     case sdf_smooth_sub: {
-        u32 idx = ggfx->sdf_units->add_count++;
+        u32 idx = ggfx->sdf_units->sub_count++;
         ggfx->sdf_units->sub_data[idx] = u;
         ggfx->sdf_units->sub_data[idx].manipulator = add_manipulator_(u, idx);
     } break;
@@ -68,6 +68,8 @@ static void sdf_manipulator_() {
             .position = v4(0.0, 0.0, 1.0, 1.0), .scale = v4(0.5f, 0.5f, 0.5f, 0.55),
             .type = ggfx->sdf_units->selected_shape, .op = ggfx->sdf_units->selected_op
         });
+
+        ggfx->sdf_units->selected_manipulator = ggfx->sdf_units->manipulators.size()-1;
     }
 
     /* Add an SDF */
@@ -147,7 +149,7 @@ void init_sdf_units(render_graph &graph) {
     graph.register_buffer(RES("sdf-units-buffer"))
         .configure({ .size = max_sdf_unit_data_size_() });
 
-    register_debug_overlay_client("SDF Units", sdf_manipulator_);
+    register_debug_overlay_client("SDF Units", sdf_manipulator_, true);
 }
 
 void update_sdf_units(render_graph &graph) {
