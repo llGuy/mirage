@@ -1,1 +1,6 @@
-This is an experimental renderer inspired by the Dreams renderer.
+This is an experimental renderer with SDFs as rendering primitives.
+
+TODO: (forget about lighting for now - let's deal with visibility)
+- Voxelize the scene on the GPU - each voxel should contain information
+  about which primitives affect that region of space
+- Rasterize fixed (screen space) size where there are SDF primitives
