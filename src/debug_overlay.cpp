@@ -7,6 +7,7 @@
 #include <imgui_impl_vulkan.h>
 
 #include "viewer.hpp"
+#include "core_render.hpp"
 #include "render_graph.hpp"
 #include "debug_overlay.hpp"
 #include "render_context.hpp"
@@ -61,6 +62,13 @@ void render_debug_overlay(VkCommandBuffer cmdbuf) {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
+
+    ImGuiIO &io = ImGui::GetIO();
+    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+
+    viewer_desc &viewer = ggfx->viewer;
+    glm::mat4 grid_transform = glm::mat4(1.0f);
+    ImGuizmo::DrawGrid(&viewer.view[0][0], &viewer.projection[0][0], &grid_transform[0][0], 10.0f);
 
     // General stuff
     ImGui::Begin("Debug Overlay");

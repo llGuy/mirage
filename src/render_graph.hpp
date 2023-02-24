@@ -67,7 +67,7 @@ struct binding {
         // Image types
         sampled_image, storage_image, color_attachment, depth_attachment, image_transfer_src, image_transfer_dst, max_image, 
         // Buffer types
-        storage_buffer, uniform_buffer, buffer_transfer_src, buffer_transfer_dst, max_buffer,
+        storage_buffer, uniform_buffer, buffer_transfer_src, buffer_transfer_dst, vertex_buffer, max_buffer,
         none
     };
 
@@ -125,6 +125,8 @@ struct binding {
             return VK_ACCESS_MEMORY_READ_BIT;
         case type::buffer_transfer_dst:
             return VK_ACCESS_MEMORY_WRITE_BIT;
+        case type::vertex_buffer:
+            return VK_ACCESS_MEMORY_READ_BIT;
         default:
             assert(false);
             return (VkAccessFlags)0;
@@ -193,7 +195,14 @@ public:
     // If this isn't set, it just inherits from first binding
     void set_render_area(VkRect2D rect);
 
-    using draw_commands_proc = void(*)(VkCommandBuffer cmdbuf, VkRect2D rect, void *aux);
+    struct draw_package {
+        VkCommandBuffer cmdbuf;
+        VkRect2D rect;
+        render_graph *graph;
+        void *user_ptr;
+    };
+
+    using draw_commands_proc = void(*)(draw_package package);
 
     void draw_commands(draw_commands_proc draw_proc, void *aux) {
         draw_commands_(draw_proc, aux);
@@ -410,6 +419,7 @@ private:
     friend class render_pass;
     friend class graph_resource;
     friend class transfer_operation;
+    friend class graph_resource_synchronizer;
 };
 
 class gpu_image {
@@ -644,6 +654,18 @@ public:
     void submit_command_buffer(const cmdbuf_info &info, VkPipelineStageFlags stage) override;
 };
 
+/* Resource synchronizer for more fine grained resource synchronization */
+class graph_resource_synchronizer {
+public:
+    graph_resource_synchronizer(VkCommandBuffer cmdbuf, render_graph *builder);
+
+    void prepare_buffer_for(const uid_string &, binding::type type, VkPipelineStageFlags stage);
+
+private:
+    render_graph *builder_;
+    VkCommandBuffer cmdbuf_;
+};
+
 class render_graph {
 public:
     render_graph();
@@ -679,6 +701,8 @@ public:
 
     // Make sure that this image is what gets presented to the screen
     void present(const uid_string &);
+
+    graph_resource_synchronizer get_resource_synchronizer();
 
 private:
     void prepare_pass_graph_stage_(graph_stage_ref ref);
@@ -762,11 +786,14 @@ private:
     // Default cmdbuf generators
     present_cmdbuf_generator present_generator_;
 
+    VkCommandBuffer current_cmdbuf_;
+
     friend class compute_pass;
     friend class render_pass;
     friend class gpu_image;
     friend class gpu_buffer;
     friend class transfer_operation;
+    friend class graph_resource_synchronizer;
 };
 
 #define RES(x) (uid_string{     \

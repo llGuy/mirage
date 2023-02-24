@@ -93,8 +93,8 @@ void run_render() {
         auto &pass = graph_->add_render_pass(STG("debug-overlay"));
         pass.add_color_attachment(RES("sdf-cast-target"));
         pass.draw_commands(
-            [] (VkCommandBuffer cmdbuf, VkRect2D rect, void *aux) {
-                render_debug_overlay(cmdbuf);
+            [] (render_pass::draw_package package) {
+                render_debug_overlay(package.cmdbuf);
             }, nullptr);
     }
 

@@ -57,10 +57,6 @@ static sdf_unit *get_sdf_unit_(op_type type, u32 idx) {
 }
 
 static void sdf_manipulator_() {
-    ImGuiIO &io = ImGui::GetIO();
-
-    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-
     viewer_desc &viewer = ggfx->viewer;
 
     if (ImGui::Button("Add SDF Unit")) {

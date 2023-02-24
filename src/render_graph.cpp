@@ -188,7 +188,7 @@ void render_pass::issue_commands_(VkCommandBuffer cmdbuf) {
 
     vkCmdSetViewport(cmdbuf, 0, 1, &viewport);
     vkCmdSetScissor(cmdbuf, 0, 1, &rect_);
-    draw_commands_proc_(cmdbuf, rect_, draw_commands_aux_);
+    draw_commands_proc_({ cmdbuf, rect_, builder_, draw_commands_aux_ });
 
     vkCmdEndRenderingKHR_proc(cmdbuf);
 }
@@ -893,6 +893,36 @@ binding &transfer_operation::get_binding(uint32_t idx) {
 
 
 
+/************************* Resource Synchronizatin ****************/
+graph_resource_synchronizer::graph_resource_synchronizer(
+    VkCommandBuffer cmdbuf, render_graph *builder)
+: builder_(builder), cmdbuf_(cmdbuf) {
+
+}
+
+void graph_resource_synchronizer::prepare_buffer_for(
+    const uid_string &uid, binding::type type, VkPipelineStageFlags stage) {
+    gpu_buffer &buf = builder_->get_buffer_(uid.id);
+
+    binding b = { .utype = type };
+
+    VkBufferMemoryBarrier barrier = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .size = buf.size_,
+        .buffer = buf.buffer_,
+        .offset = 0,
+        .srcAccessMask = buf.current_access_,
+        .dstAccessMask = b.get_buffer_access(),
+    };
+
+    vkCmdPipelineBarrier(cmdbuf_, buf.last_used_, stage, 0, 0, nullptr, 1, &barrier, 0, nullptr);
+
+    buf.current_access_ = b.get_buffer_access();
+    buf.last_used_ = stage;
+}
+
+
+
 /************************* Graph Builder **************************/
 render_graph::render_graph() 
 : present_generator_(2) {
@@ -1304,6 +1334,7 @@ void render_graph::end(cmdbuf_generator *generator) {
 
     // Generate the command buffer
     cmdbuf_generator::cmdbuf_info info = generator->get_command_buffer();
+    current_cmdbuf_ = info.cmdbuf;
 
     swapchain_img_idx_ = info.swapchain_idx;
 
@@ -1359,6 +1390,10 @@ void render_graph::present(const uid_string &res_uid) {
     img.add_usage_node_(graph_stage_ref_present, 0);
 
     recorded_stages_.push_back(graph_stage_ref_present);
+}
+
+graph_resource_synchronizer render_graph::get_resource_synchronizer() {
+    return graph_resource_synchronizer(current_cmdbuf_, this);
 }
 
 // Cmdbuf generators...
