@@ -33,18 +33,25 @@ struct sdf_unit {
 
 struct sdf_manipulator {
     m4x4 tx;
-    u32 shape_op;
     u32 idx;
 };
 
-struct sdf_unit_array {
-    u32 sub_count;
-    u32 add_count;
-    u32 pad[2];
+// Gets sent to compute shader
+struct sdf_info {
+    u32 unit_count;
 
-    sdf_unit sub_data[max_sdf_unit_count];
-    sdf_unit add_data[max_sdf_unit_count];
+    // One count for each type of sdf unit
+    u32 add_unit_count;
+    u32 sub_unit_count;
+};
 
+struct sdf_arrays {
+    sdf_unit *units;
+    u32 *add_units;
+    u32 *sub_units;
+};
+
+struct sdf_debug {
     std::vector<sdf_manipulator> manipulators;
     s32 selected_manipulator;
     op_type selected_op;
@@ -55,3 +62,7 @@ struct sdf_unit_array {
 
 void init_sdf_units(render_graph &graph);
 void update_sdf_units(render_graph &graph);
+void init_sdf_octree();
+void clear_sdf_octree();
+void add_sdf_unit(const sdf_unit &u);
+void update_sdf_octree();

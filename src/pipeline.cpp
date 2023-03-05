@@ -206,6 +206,19 @@ void pso_config::add_color_attachment(
         } break;
     }
 
+    if (op != VK_BLEND_OP_MAX_ENUM) {
+        // Enable blending on this attachment
+        blend_state.blendEnable = VK_TRUE;
+        blend_state.colorBlendOp = op;
+        blend_state.alphaBlendOp = op;
+
+        blend_state.srcColorBlendFactor = src;
+        blend_state.srcAlphaBlendFactor = src;
+
+        blend_state.dstColorBlendFactor = dst;
+        blend_state.dstAlphaBlendFactor = dst;
+    }
+
     attachment_formats_.push_back(format);
 }
 

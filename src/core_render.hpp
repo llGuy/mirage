@@ -10,10 +10,13 @@
 
 // All renderer resources (textures, uniforms, pipelines, etc...)
 extern struct graphics_resources {
-    sdf_unit_array *sdf_units;
-
     // Current viewer - perhaps some system will determine which agent to bind this to
     viewer_desc viewer;
+
+    // All SDF information
+    sdf_info units_info;
+    sdf_arrays units_arrays;
+    sdf_debug units_debug;
 } *ggfx;
 
 void init_core_render();

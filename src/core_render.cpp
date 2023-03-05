@@ -84,7 +84,10 @@ void run_render() {
         pass.set_source("sdf_cast");
         pass.add_storage_image(RES("sdf-cast-target"));
         pass.add_uniform_buffer(RES("time-buffer"));
+        pass.add_uniform_buffer(RES("sdf-info-buffer"));
         pass.add_uniform_buffer(RES("sdf-units-buffer"));
+        pass.add_uniform_buffer(RES("sdf-add-buffer"));
+        pass.add_uniform_buffer(RES("sdf-sub-buffer"));
         pass.add_uniform_buffer(RES("viewer-buffer"));
         pass.dispatch_waves(16, 16, 1, RES("sdf-cast-target"));
     }

@@ -132,6 +132,11 @@ public:
     pso(pso_config &config);
 
     void bind(VkCommandBuffer cmdbuf);
+    void push_constant(void *data, uint32_t size);
+
+    inline VkPipelineLayout pso_layout() {
+        return layout_;
+    }
 
 private:
     VkPipeline pipeline_;

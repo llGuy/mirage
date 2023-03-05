@@ -14,3 +14,11 @@ void render_debug_overlay(VkCommandBuffer cmdbuf);
 void register_debug_overlay_client(const char *name, debug_overlay_proc proc, bool open_by_default = false);
 
 bool overlay_has_focus();
+
+struct dbg_rectangle {
+    v2 positions[4];
+    // With alpha blending
+    v4 color;
+};
+
+void add_debug_rectangle(const dbg_rectangle &rect);

@@ -1,5 +1,7 @@
 #version 450
 
+#extension GL_EXT_scalar_block_layout : require
+
 #include "sdf.glsl"
 #include "viewer.glsl"
 
@@ -12,17 +14,25 @@ layout (set = 1, binding = 0) uniform time_data {
     float t;
 } utime;
 
-layout (set = 2, binding = 0) uniform sdf_unit_data {
-    uint sub_count;
+layout (set = 2, binding = 0) uniform sdf_unit_info {
+    uint unit_count;
     uint add_count;
-    uint pad0;
-    uint pad1;
+    uint sub_count;
+} uunit_info;
 
-    sdf_unit sub_units[max_sdf_unit_count];
-    sdf_unit add_units[max_sdf_unit_count];
-} usdf_units;
+layout (set = 3, binding = 0) uniform sdf_unit_data {
+    sdf_unit u[max_sdf_unit_count];
+} uunits;
 
-layout (set = 3, binding = 0) uniform viewer_data {
+layout (set = 4, binding = 0, scalar) uniform sdf_add_data {
+    uint indices[max_sdf_unit_count];
+} uadd_units;
+
+layout (set = 5, binding = 0, scalar) uniform sdf_sub_data {
+    uint indices[max_sdf_unit_count];
+} usub_units;
+
+layout (set = 6, binding = 0) uniform viewer_data {
     viewer_desc data;
 } uviewer;
 
@@ -66,8 +76,9 @@ float map(in vec3 pos) {
     float an = sin(utime.t);
 
     // We need to first go through the intersections then the additions, then the subtractions
-    for (int i = 0; i < usdf_units.add_count; ++i) {
-        sdf_unit u = usdf_units.add_units[i];
+    for (int i = 0; i < uunit_info.add_count; ++i) {
+        uint add_no = uadd_units.indices[i];
+        sdf_unit u = uunits.u[add_no];
 
         float d_unit = 0.0;
 
@@ -77,7 +88,7 @@ float map(in vec3 pos) {
         } break;
 
         case sdf_cube: {
-            d_unit = cube(pos - u.position.xyz, u.scale.xyz, 0.1);
+            d_unit = cube(pos - u.position.xyz, u.scale.xyz, u.scale.w);
         } break;
 
         default: {
@@ -88,8 +99,9 @@ float map(in vec3 pos) {
         d = op_smooth_union(d_unit, d, 0.25);
     }
 
-    for (int i = 0; i < usdf_units.sub_count; ++i) {
-        sdf_unit u = usdf_units.sub_units[i];
+    for (int i = 0; i < uunit_info.sub_count; ++i) {
+        uint sub_no = usub_units.indices[i];
+        sdf_unit u = uunits.u[sub_no];
 
         float d_unit = 0.0;
 
@@ -117,9 +129,9 @@ vec3 calc_normal(in vec3 pos) {
     const float ep = 0.0001;
     vec2 e = vec2(1.0,-1.0)*0.5773;
     return normalize( e.xyy*map( pos + e.xyy*ep ) + 
-					  e.yyx*map( pos + e.yyx*ep ) + 
-					  e.yxy*map( pos + e.yxy*ep ) + 
-					  e.xxx*map( pos + e.xxx*ep ) );
+            e.yyx*map( pos + e.yyx*ep ) + 
+            e.yxy*map( pos + e.yxy*ep ) + 
+            e.xxx*map( pos + e.xxx*ep ) );
 }
 
 float calc_soft_shadow(in vec3 ro, in vec3 rd, float tmin, float tmax, const float k) {

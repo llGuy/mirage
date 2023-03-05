@@ -7,49 +7,32 @@
 #include "core_render.hpp"
 #include <glm/gtx/transform.hpp>
 
-/* Divide the space into voxels (maybe in frustum space),
- * Each voxel/froxel stores an array of the sdf_units which
- * affect that space. */
-
 static constexpr u32 max_sdf_unit_data_size_() {
     return sizeof(u32) + 2 * max_sdf_unit_count * sizeof(sdf_unit);
 }
 
-static u32 add_manipulator_(const sdf_unit &u, u32 i) {
-    u32 idx = ggfx->sdf_units->manipulators.size();
-    ggfx->sdf_units->manipulators.push_back({ 
-        glm::translate(v3(u.position)) * glm::scale(v3(u.scale)),
-        u.op, i
+static u32 add_manipulator_(const sdf_unit &u, u32 i, sdf_debug *debug) {
+    u32 idx = debug->manipulators.size();
+    debug->manipulators.push_back({ 
+        glm::translate(v3(u.position)) * glm::scale(v3(u.scale)), i
     });
     return idx;
 }
 
-static void add_sdf_unit_(const sdf_unit &u) {
+static void add_sdf_unit_(const sdf_unit &u, sdf_info *info, sdf_arrays *arrays, sdf_debug *debug) {
+    u32 idx = info->unit_count++;
+    arrays->units[idx] = u;
+    arrays->units[idx].manipulator = add_manipulator_(u, idx, debug);
+
     switch (u.op) {
     case sdf_smooth_add: {
-        u32 idx = ggfx->sdf_units->add_count++;
-        ggfx->sdf_units->add_data[idx] = u;
-        ggfx->sdf_units->add_data[idx].manipulator = add_manipulator_(u, idx);
+        u32 add_idx = info->add_unit_count++;
+        arrays->add_units[add_idx] = idx;
     } break;
 
     case sdf_smooth_sub: {
-        u32 idx = ggfx->sdf_units->sub_count++;
-        ggfx->sdf_units->sub_data[idx] = u;
-        ggfx->sdf_units->sub_data[idx].manipulator = add_manipulator_(u, idx);
-    } break;
-
-    default: assert(false);
-    }
-}
-
-static sdf_unit *get_sdf_unit_(op_type type, u32 idx) {
-    switch (type) {
-    case sdf_smooth_add: {
-        return &ggfx->sdf_units->add_data[idx];
-    } break;
-
-    case sdf_smooth_sub: {
-        return &ggfx->sdf_units->sub_data[idx];
+        u32 sub_idx = info->sub_unit_count++;
+        arrays->sub_units[sub_idx] = idx;
     } break;
 
     default: assert(false);
@@ -58,53 +41,54 @@ static sdf_unit *get_sdf_unit_(op_type type, u32 idx) {
 
 static void sdf_manipulator_() {
     viewer_desc &viewer = ggfx->viewer;
+    sdf_info *info = &ggfx->units_info;
+    sdf_arrays *arrays = &ggfx->units_arrays;
+    sdf_debug *debug = &ggfx->units_debug;
 
     if (ImGui::Button("Add SDF Unit")) {
         add_sdf_unit_({
-            .position = v4(0.0, 0.0, 1.0, 1.0), .scale = v4(0.5f, 0.5f, 0.5f, 0.55),
-            .type = ggfx->sdf_units->selected_shape, .op = ggfx->sdf_units->selected_op
-        });
+            .position = v4(0.0, 0.0, 1.0, 1.0), .scale = v4(0.5f, 0.5f, 0.5f, 0.03),
+            .type = debug->selected_shape, .op = debug->selected_op
+        }, info, arrays, debug);
 
-        ggfx->sdf_units->selected_manipulator = ggfx->sdf_units->manipulators.size()-1;
+        debug->selected_manipulator = debug->manipulators.size()-1;
     }
 
     /* Add an SDF */
     const char *shape_names[] = { "Sphere", "Cube" };
-    ImGui::Combo("Shape", (int *)&ggfx->sdf_units->selected_shape, shape_names, (int)sdf_type_none);
+    ImGui::Combo("Shape", (int *)&debug->selected_shape, shape_names, (int)sdf_type_none);
 
     const char *operation_names[] = { "Add", "Sub", "Intersect", "Smooth Add", "Smooth Sub", "Smooth Intersect" };
-    ImGui::Combo("Operation", (int *)&ggfx->sdf_units->selected_op, operation_names, (int)op_type_none);
+    ImGui::Combo("Operation", (int *)&debug->selected_op, operation_names, (int)op_type_none);
 
     ImGuizmo::OPERATION manip_ops[] = { ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE };
     const char *manip_names[] = { "Translate", "Rotate", "Scale" };
-    ImGui::Combo("Manipulation", &ggfx->sdf_units->manip_op_idx, manip_names, 3);
-    ggfx->sdf_units->manip_op = manip_ops[ggfx->sdf_units->manip_op_idx];
+    ImGui::Combo("Manipulation", &debug->manip_op_idx, manip_names, 3);
+    debug->manip_op = manip_ops[debug->manip_op_idx];
 
     /* SDF List - select which to manipulate */
     char sdf_name[] = "- sdf0";
     ImGui::Text("SDF List:");
 
-    for (int i = 0; i < ggfx->sdf_units->manipulators.size(); ++i) {
-        sdf_manipulator *m = &ggfx->sdf_units->manipulators[i];
-        sdf_unit *u;
-
-        if (m->shape_op == sdf_smooth_add)
-            u = &ggfx->sdf_units->add_data[m->idx];
-        else
-            u = &ggfx->sdf_units->sub_data[m->idx];
+    for (int i = 0; i < debug->manipulators.size(); ++i) {
+        sdf_manipulator *m = &debug->manipulators[i];
+        sdf_unit *u = &arrays->units[m->idx];
 
         sdf_name[5] = '0' + i;
         if (ImGui::Selectable(sdf_name)) {
-            ggfx->sdf_units->selected_manipulator = i;
+            debug->selected_manipulator = i;
         }
 
         // If we selected this unit, render manipulator
-        if (i == ggfx->sdf_units->selected_manipulator) {
+        if (i == debug->selected_manipulator) {
             m4x4 tx = glm::translate(v3(u->position)) * glm::scale(v3(u->scale));
+
+            // Draw Cube too
+            // ImGuizmo::DrawCubes(&viewer.view[0][0], &viewer.projection[0][0], &tx[0][0], 1);
 
             ImGuizmo::SetDrawlist(ImGui::GetForegroundDrawList());
 
-            ImGuizmo::Manipulate(&viewer.view[0][0], &viewer.projection[0][0], ggfx->sdf_units->manip_op, ImGuizmo::WORLD, &tx[0][0]);
+            ImGuizmo::Manipulate(&viewer.view[0][0], &viewer.projection[0][0], debug->manip_op, ImGuizmo::WORLD, &tx[0][0]);
 
             float translate[3], rotate[3], scale[3];
             ImGuizmo::DecomposeMatrixToComponents(&tx[0][0], translate, rotate, scale);
@@ -116,36 +100,56 @@ static void sdf_manipulator_() {
 }
 
 void init_sdf_units(render_graph &graph) {
-    ggfx->sdf_units = mem_alloc<sdf_unit_array>();
+    sdf_info *info = &ggfx->units_info;
+    sdf_arrays *arrays = &ggfx->units_arrays;
+    sdf_debug *debug = &ggfx->units_debug;
 
-    ggfx->sdf_units->selected_manipulator = -1;
-    ggfx->sdf_units->selected_op = sdf_smooth_add;
+    arrays->units = mem_allocv<sdf_unit>(max_sdf_unit_count);
+    arrays->add_units = mem_allocv<u32>(max_sdf_unit_count);
+    arrays->sub_units = mem_allocv<u32>(max_sdf_unit_count);
+    info->add_unit_count = 0;
+    info->sub_unit_count = 0;
+    info->unit_count = 0;
+
+    ggfx->units_debug.selected_manipulator = -1;
+    ggfx->units_debug.selected_op = sdf_smooth_add;
 
     // Hardcode the sdf_units
     add_sdf_unit_({
-        .position = v4(-1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.55),
+        .position = v4(-1.0, 0.0, 1.0, 1.0), .scale = v4(0.55),
         .type = sdf_sphere, .op = sdf_smooth_add
-    });
+    }, info, arrays, debug);
 
     add_sdf_unit_({
-        .position = v4(-1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.1),
+        .position = v4(-1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.03),
         .type = sdf_cube, .op = sdf_smooth_add
-    });
+    }, info, arrays, debug);
 
     add_sdf_unit_({
-        .position = v4(1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.55),
+        .position = v4(1.0, 0.0, 1.0, 1.0), .scale = v4(0.55f),
         .type = sdf_sphere, .op = sdf_smooth_add
-    });
+    }, info, arrays, debug);
 
     add_sdf_unit_({
-        .position = v4(1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.1),
+        .position = v4(1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.03),
         .type = sdf_cube, .op = sdf_smooth_add
-    });
+    }, info, arrays, debug);
 
     graph.register_buffer(RES("sdf-units-buffer"))
-        .configure({ .size = max_sdf_unit_data_size_() });
+        .configure({ .size = max_sdf_unit_count * sizeof(sdf_unit) });
+
+    graph.register_buffer(RES("sdf-add-buffer"))
+        .configure({ .size = max_sdf_unit_count * sizeof(u32) });
+
+    graph.register_buffer(RES("sdf-sub-buffer"))
+        .configure({ .size = max_sdf_unit_count * sizeof(u32) });
+
+    graph.register_buffer(RES("sdf-info-buffer"))
+        .configure({ .size = sizeof(sdf_info) });
 
     register_debug_overlay_client("SDF Units", sdf_manipulator_, true);
+
+    init_sdf_octree();
 }
 
 void update_sdf_units(render_graph &graph) {
@@ -153,13 +157,19 @@ void update_sdf_units(render_graph &graph) {
     float sn = glm::sin(gtime->current_time);
     float cn = glm::cos(gtime->current_time);
 
-    sdf_unit *sphere1 = get_sdf_unit_(sdf_smooth_add, 0);
-    sdf_unit *sphere2 = get_sdf_unit_(sdf_smooth_add, 2);
+    sdf_unit *sphere1 = &ggfx->units_arrays.units[0];
+    sdf_unit *sphere2 = &ggfx->units_arrays.units[2];
 
     sphere1->position.y = 0.5 + 0.3 * sn;
     sphere2->position.x = 1.0 + 0.3 * sn;
     sphere2->position.z = 1.0 + 0.3 * cn;
 
+    clear_sdf_octree();
+    update_sdf_octree();
+
     // Record command to update sdf units buffer
-    graph.add_buffer_update(RES("sdf-units-buffer"), ggfx->sdf_units);
+    graph.add_buffer_update(RES("sdf-info-buffer"), &ggfx->units_info);
+    graph.add_buffer_update(RES("sdf-units-buffer"), ggfx->units_arrays.units);
+    graph.add_buffer_update(RES("sdf-add-buffer"), ggfx->units_arrays.add_units);
+    graph.add_buffer_update(RES("sdf-sub-buffer"), ggfx->units_arrays.sub_units);
 }
