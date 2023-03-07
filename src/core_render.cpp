@@ -35,6 +35,7 @@ void init_core_render() {
     ggfx->viewer.wview_dir = glm::normalize(v3(-0.377f, -0.455f, -0.806f));
     ggfx->viewer.wup = v3(0.0f, 1.0f, 0.0f);
     ggfx->viewer.fov = 30.0f;
+    ggfx->viewer_speed = 1.0f;
 
     // Register time uniform buffer
     graph_->register_buffer(RES("time-buffer"))
@@ -61,6 +62,8 @@ void init_core_render() {
                 ggfx->viewer.wview_dir.x, ggfx->viewer.wview_dir.y, ggfx->viewer.wview_dir.z);
 
             ImGui::SliderFloat("FOV", &ggfx->viewer.fov, 30.0f, 90.0f);
+
+            ImGui::SliderFloat("Speed", &ggfx->viewer_speed, 0.0f, 15.0f);
         }, true);
 }
 

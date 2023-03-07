@@ -14,17 +14,17 @@ void tick_debug_viewer() {
         v3 forward = glm::normalize(glm::cross(up, right));
 
         if (get_button(button_type::keyboard_w).is_down)
-            ggfx->viewer.wposition += forward * gtime->frame_dt;
+            ggfx->viewer.wposition += forward * gtime->frame_dt * ggfx->viewer_speed;
         if (get_button(button_type::keyboard_a).is_down)
-            ggfx->viewer.wposition += -right * gtime->frame_dt;
+            ggfx->viewer.wposition += -right * gtime->frame_dt * ggfx->viewer_speed;
         if (get_button(button_type::keyboard_s).is_down)
-            ggfx->viewer.wposition += -forward * gtime->frame_dt;
+            ggfx->viewer.wposition += -forward * gtime->frame_dt * ggfx->viewer_speed;
         if (get_button(button_type::keyboard_d).is_down)
-            ggfx->viewer.wposition += right * gtime->frame_dt;
+            ggfx->viewer.wposition += right * gtime->frame_dt * ggfx->viewer_speed;
         if (get_button(button_type::keyboard_space).is_down)
-            ggfx->viewer.wposition += up * gtime->frame_dt;
+            ggfx->viewer.wposition += up * gtime->frame_dt * ggfx->viewer_speed;
         if (get_button(button_type::keyboard_left_shift).is_down)
-            ggfx->viewer.wposition += -up * gtime->frame_dt;
+            ggfx->viewer.wposition += -up * gtime->frame_dt * ggfx->viewer_speed;
 
         if (get_cursor().did_cursor_move) {
             auto cur = get_cursor();

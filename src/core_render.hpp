@@ -12,6 +12,7 @@
 extern struct graphics_resources {
     // Current viewer - perhaps some system will determine which agent to bind this to
     viewer_desc viewer;
+    float viewer_speed;
 
     // All SDF information
     sdf_info units_info;
