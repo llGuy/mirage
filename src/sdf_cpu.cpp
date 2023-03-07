@@ -100,6 +100,8 @@ struct octree_node {
                          [OCTREE_NODE_WIDTH] /* X */;
 };
 
+constexpr uint32_t invalid_sdf_id = 0xFFFFFFFF;
+
 struct sdf_list_node {
     union {
         struct {
@@ -112,6 +114,8 @@ struct sdf_list_node {
             u32 sdf_ids[15];
             u32 next;
         } inner_elem;
+
+        u32 elements[16];
     };
 };
 
@@ -130,7 +134,7 @@ public:
     arena_pool(u32 size) 
     : pool_size_(size) {
         pool_size_ = size;
-        pool_ = mem_allocv<octree_node>(size);
+        pool_ = mem_allocv<T>(size);
         memset(pool_, 0, sizeof(T) * size);
         first_free_ = nullptr;
         reached_ = 0;
@@ -228,6 +232,8 @@ void init_sdf_octree() {
     octree_max_level_ = 32.0f;
 
     octree_nodes_ = arena_pool<octree_node>(1024);
+    sdf_list_nodes_ = arena_pool<sdf_list_node>(1024);
+
     root_ = create_node_info(false, false, octree_nodes_.get_node_idx(octree_nodes_.alloc()));
 
     sdf_render_instances_ = heap_array<sdf_render_instance>(MAX_SDF_RENDER_INSTANCES);
@@ -326,6 +332,50 @@ void insert_batched_sdf_nodes_into_octree() {
 
 }
 
+// For now just write ugly code - will clean up in the future when this works
+// and we do GPU port of all this shit
+void push_back_sdf_list_node(sdf_list_node *node, u32 value) {
+    // Calculate how many nodes themselves we need to traverse
+    int elem_count = (int)node->first_elem.count;
+
+    float to_traverse_minus_one = glm::floor(((float)elem_count - 14.0f) / 15.0f);
+    int to_traverse = 1 + (int)to_traverse_minus_one;
+
+    int elems_in_node = (to_traverse == 0) ? elem_count : (elem_count-14)%15;
+    int max_elems_in_node = (to_traverse == 0) ? 14 : 15;
+
+    sdf_list_node *current_node = node;
+
+    // Traverse through the tree
+    if (to_traverse)
+        current_node = sdf_list_nodes_.get_node(current_node->first_elem.next);
+    for (int i = 0; i < to_traverse-1; ++i)
+        current_node = sdf_list_nodes_.get_node(current_node->inner_elem.next);
+
+    if (elems_in_node == max_elems_in_node) {
+        // Create a new node and push back to that node
+        u32 list_node = sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc());
+        
+        if (to_traverse == 0)
+            current_node->first_elem.next = list_node;
+        else
+            current_node->inner_elem.next = list_node;
+
+        current_node = sdf_list_nodes_.get_node(list_node);
+        current_node->inner_elem.sdf_ids[0] = value;
+    }
+    else {
+        if (to_traverse == 0) {
+            current_node->first_elem.sdf_ids[elems_in_node] = value;
+        }
+        else {
+            current_node->inner_elem.sdf_ids[elems_in_node] = value;
+        }
+    }
+
+    node->first_elem.count++;
+}
+
 // The position is in octree space (where 0,0,0 is at the octree origin)
 void insert_sdf_node_into_octree(float level, v3 pos) {
     int dst_level = (int)level;
@@ -377,7 +427,18 @@ void insert_sdf_node_into_octree(float level, v3 pos) {
 
     assert(found);
 
-    // Now do some voodoo shit
+    if (!is_node_leaf(*current_node)) {
+        // This means that this node wasn't created yet - must create (must be an empty node as of now)
+        assert(is_node_empty(*current_node));
+
+        node_info new_node = create_node_info(
+            false, true, sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc()));
+        *current_node = new_node;
+    }
+
+    // Now that that the node is definitely created and valid, we can proceed wth adding
+    // the SDF information to that node
+    sdf_list_node *node = sdf_list_nodes_.get_node(node_loc(*current_node));
 }
 
 // Add an SDF unit to the octree
