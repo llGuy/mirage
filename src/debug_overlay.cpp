@@ -26,6 +26,9 @@ static bool has_focus_;
 static pso dbg_rectangle_pso_;
 static std::vector<dbg_rectangle> rectangles_;
 
+static pso dbg_line_pso_;
+static std::vector<dbg_line> lines_;
+
 static void imgui_callback_(VkResult result) {
     (void)result;
 }
@@ -69,20 +72,34 @@ void init_debug_overlay() {
 
     dbg_rectangle_pso_ = pso(dbg_rect_config);
 
+    pso_config dbg_line_config("dbg_line.vert.spv", "dbg_line.frag.spv");
+    dbg_line_config.add_color_attachment(gctx->swapchain_format);
+    dbg_line_config.set_topology(VK_PRIMITIVE_TOPOLOGY_LINE_LIST);
+    dbg_line_config.configure_layouts(sizeof(dbg_line),
+        pso_descriptor{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+
+    dbg_line_pso_ = pso(dbg_line_config);
 }
 
 void render_debug_overlay(VkCommandBuffer cmdbuf) {
     static bool draw_screen_boundary = true;
+    static bool draw_octree = false;
 
     // Render the rectangles
     if (draw_screen_boundary) {
         for (auto &rect : rectangles_) {
             dbg_rectangle_pso_.bind(cmdbuf);
             vkCmdPushConstants(
-                    cmdbuf, dbg_rectangle_pso_.pso_layout(), VK_SHADER_STAGE_ALL,
-                    0, sizeof(rect), &rect);
+                cmdbuf, dbg_rectangle_pso_.pso_layout(), VK_SHADER_STAGE_ALL,
+                0, sizeof(rect), &rect);
 
             vkCmdDraw(cmdbuf, 6, 1, 0, 0);
+        }
+    }
+
+    if (draw_octree) {
+        for (auto &line : lines_) {
+            dbg_line_pso_.bind(cmdbuf);
         }
     }
 
@@ -102,6 +119,7 @@ void render_debug_overlay(VkCommandBuffer cmdbuf) {
 
     ImGui::Checkbox("Draw Grid", &draw_grid);
     ImGui::Checkbox("Draw Screen Boundary", &draw_screen_boundary);
+    ImGui::Checkbox("Draw Octree", &draw_octree);
 
     if (draw_grid) {
         viewer_desc &viewer = ggfx->viewer;

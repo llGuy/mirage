@@ -22,3 +22,11 @@ struct dbg_rectangle {
 };
 
 void add_debug_rectangle(const dbg_rectangle &rect);
+
+// These are going to be defined in world space
+struct dbg_line {
+    v4 positions[2];
+    v4 color;
+};
+
+void add_debug_line(const dbg_line &line);

@@ -40,7 +40,7 @@ union octree_info_extracter {
 
     struct {
         // Does this contain any information whatsoever
-        u32 is_empty : 1;
+        u32 has_data : 1;
 
         // Is this a leaf (i.e., does this contain SDF information)
         // Otherwise, this is a node which points to another octree node
@@ -54,9 +54,9 @@ union octree_info_extracter {
 
 typedef u32 node_info;
 
-bool is_node_empty(node_info n) {
+bool node_has_data(node_info n) {
     octree_info_extracter *e = (octree_info_extracter *)&n;
-    return e->is_empty;
+    return e->has_data;
 }
 
 bool is_node_leaf(node_info n) {
@@ -69,9 +69,9 @@ u32 node_loc(node_info n) {
     return e->loc;
 }
 
-void set_is_node_empty(node_info n, bool value) {
+void set_node_has_data(node_info n, bool value) {
     octree_info_extracter *e = (octree_info_extracter *)&n;
-    e->is_empty = value;
+    e->has_data = value;
 }
 
 void set_is_node_leaf(node_info n, bool value) {
@@ -84,9 +84,10 @@ void set_node_loc(node_info n, u32 loc) {
     e->loc = loc;
 }
 
-node_info create_node_info(bool is_empty, bool is_leaf, u32 loc) {
+// If loc actually refers to a octree node, HAS_DATA has to be true
+node_info create_node_info(bool has_data, bool is_leaf, u32 loc) {
     octree_info_extracter e;
-    e.is_empty = is_empty;
+    e.has_data = has_data;
     e.is_leaf = is_leaf;
     e.loc = loc;
 
@@ -140,14 +141,18 @@ public:
         reached_ = 0;
     }
 
+    // This will also zero initialize the data that we are allocating
     T *alloc() {
         if (first_free_) {
             T *new_free_node = first_free_;
+            memset(new_free_node, 0, sizeof(T));
+
             first_free_ = next(first_free_);
             return new_free_node;
         }
         else {
             assert(reached_ < pool_size_);
+            memset(&pool_[reached_], 0, sizeof(T));
             return &pool_[reached_++];
         }
     }
@@ -229,21 +234,24 @@ static void sdf_octree_gen_debug_proc_() {
 }
 
 void init_sdf_octree() {
-    octree_max_level_ = 32.0f;
+    octree_max_level_ = 4.0f;
 
     octree_nodes_ = arena_pool<octree_node>(1024);
     sdf_list_nodes_ = arena_pool<sdf_list_node>(1024);
 
-    root_ = create_node_info(false, false, octree_nodes_.get_node_idx(octree_nodes_.alloc()));
+    root_ = create_node_info(true, false, octree_nodes_.get_node_idx(octree_nodes_.alloc()));
 
     sdf_render_instances_ = heap_array<sdf_render_instance>(MAX_SDF_RENDER_INSTANCES);
 
     register_debug_overlay_client("SDF Octree Gen", sdf_octree_gen_debug_proc_, true);
 }
 
+// Clears all the arena allocators and reinitializes the root node
 void clear_sdf_octree() {
     octree_nodes_.clear();
     sdf_list_nodes_.clear();
+
+    root_ = create_node_info(true, false, octree_nodes_.get_node_idx(octree_nodes_.alloc()));
 }
 
 // Get level from LOD
@@ -377,7 +385,7 @@ void push_back_sdf_list_node(sdf_list_node *node, u32 value) {
 }
 
 // The position is in octree space (where 0,0,0 is at the octree origin)
-void insert_sdf_node_into_octree(float level, v3 pos) {
+void insert_sdf_node_into_octree(float level, v3 pos, u32 value) {
     int dst_level = (int)level;
     float scale = glm::pow(2.0f, level);
 
@@ -392,10 +400,10 @@ void insert_sdf_node_into_octree(float level, v3 pos) {
         }
 
         // If the node is empty (i.e. doesn't point to anything), then, create a new one
-        if (is_node_empty(*current_node)) {
+        if (!node_has_data(*current_node)) {
             // Create a new node
             node_info new_node = create_node_info(
-                false, false, octree_nodes_.get_node_idx(octree_nodes_.alloc()));
+                true, false, octree_nodes_.get_node_idx(octree_nodes_.alloc()));
             *current_node = new_node;
         }
 
@@ -429,20 +437,23 @@ void insert_sdf_node_into_octree(float level, v3 pos) {
 
     if (!is_node_leaf(*current_node)) {
         // This means that this node wasn't created yet - must create (must be an empty node as of now)
-        assert(is_node_empty(*current_node));
+        assert(!node_has_data(*current_node));
 
+        // Node has data and is a leaf
         node_info new_node = create_node_info(
-            false, true, sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc()));
+            true, true, sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc()));
         *current_node = new_node;
     }
 
     // Now that that the node is definitely created and valid, we can proceed wth adding
     // the SDF information to that node
     sdf_list_node *node = sdf_list_nodes_.get_node(node_loc(*current_node));
+
+    push_back_sdf_list_node(node, value);
 }
 
 // Add an SDF unit to the octree
-void add_sdf_unit(const sdf_unit &u) {
+void add_sdf_unit(const sdf_unit &u, u32 u_id) {
     v3 scale = v3(u.scale) + v3(0.1f);
     v3 low = v3(u.position) - scale;
     v3 high = v3(u.position) + scale;
@@ -458,6 +469,17 @@ void add_sdf_unit(const sdf_unit &u) {
     v3 cube_end = ceil_to(high, cube_width);
     v3 rng = cube_end - cube_start;
     v3 count = rng / cube_width;
+
+    iv3 off = iv3(0);
+    for (off.z = 0; off.z < count.z; ++off.z) {
+        for (off.y = 0; off.y < count.y; ++off.y) {
+            for (off.x = 0; off.x < count.x; ++off.x) {
+                v3 pos = cube_start + v3(off) * cube_width;
+
+                insert_sdf_node_into_octree(level, pos, u_id);
+            }
+        }
+    }
 
     // Just for debugging purposes
     if (ggfx->units_debug.selected_manipulator == u.manipulator) {
@@ -475,6 +497,6 @@ void add_sdf_unit(const sdf_unit &u) {
 void update_sdf_octree() {
     for (int i = 0; i < ggfx->units_info.unit_count; ++i) {
         sdf_unit &u = ggfx->units_arrays.units[i];
-        add_sdf_unit(u);
+        add_sdf_unit(u, i);
     }
 }
