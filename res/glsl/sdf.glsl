@@ -17,14 +17,15 @@
 #define sdf_smooth_intersect    0x5
 
 
-struct sdf_unit {
-    // Add rotations later
-    vec4 position;
-    vec4 scale;
-    uint type;
-    uint op;
-    uint pad0;
-    uint pad1;
+struct sdf_unit 
+{
+  // Add rotations later
+  vec4 position;
+  vec4 scale;
+  uint type;
+  uint op;
+  uint pad0;
+  uint pad1;
 };
 
 

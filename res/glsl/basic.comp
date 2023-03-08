@@ -3,16 +3,19 @@
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout (set = 0, binding = 0, rgba8) uniform image2D ufinal_image;
-layout (set = 1, binding = 0) uniform some_ubo {
-    float s;
+layout (set = 1, binding = 0) uniform some_ubo 
+{
+  float s;
 } udata;
 
-void main() {
-    ivec2 extent = imageSize(ufinal_image).xy;
-    ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+void main() 
+{
+  ivec2 extent = imageSize(ufinal_image).xy;
+  ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 
-    if (pixel_coords.x < extent.x && pixel_coords.y < extent.y) {
-        vec4 frag_color = vec4(vec2(pixel_coords.xy) / vec2(extent.xy), udata.s * 0.5f + 0.5f, 1.0);
-        imageStore(ufinal_image, pixel_coords, frag_color);
-    }
+  if (pixel_coords.x < extent.x && pixel_coords.y < extent.y) 
+  {
+    vec4 frag_color = vec4(vec2(pixel_coords.xy) / vec2(extent.xy), udata.s * 0.5f + 0.5f, 1.0);
+    imageStore(ufinal_image, pixel_coords, frag_color);
+  }
 }

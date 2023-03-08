@@ -15,18 +15,20 @@ void register_debug_overlay_client(const char *name, debug_overlay_proc proc, bo
 
 bool overlay_has_focus();
 
-struct dbg_rectangle {
-    v2 positions[4];
-    // With alpha blending
-    v4 color;
+struct dbg_rectangle 
+{
+  v2 positions[4];
+  // With alpha blending
+  v4 color;
 };
 
 void add_debug_rectangle(const dbg_rectangle &rect);
 
 // These are going to be defined in world space
-struct dbg_line {
-    v4 positions[2];
-    v4 color;
+struct dbg_line 
+{
+  v4 positions[2];
+  v4 color;
 };
 
 void add_debug_line(const dbg_line &line);

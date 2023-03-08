@@ -18,9 +18,9 @@ include_directories("${CMAKE_SOURCE_DIR}/ext/ImGuizmo")
 find_package(Vulkan)
 
 if (Vulkan_FOUND)
-    message(STATUS "Found Vulkan package in system ${Vulkan_LIBRARY}")
-    include_directories("${Vulkan_INCLUDE_DIRS}")
-    link_libraries("${Vulkan_LIBRARY}")
+  message(STATUS "Found Vulkan package in system ${Vulkan_LIBRARY}")
+  include_directories("${Vulkan_INCLUDE_DIRS}")
+  link_libraries("${Vulkan_LIBRARY}")
 endif()
 
 file(GLOB_RECURSE IMGUI_SOURCES "ext/imgui/*.cpp" "ext/imgui/*.h")

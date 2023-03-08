@@ -9,198 +9,230 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout (set = 0, binding = 0, rgba8) uniform image2D ufinal_image;
 
-layout (set = 1, binding = 0) uniform time_data {
-    float dt;
-    float t;
+layout (set = 1, binding = 0) uniform time_data 
+{
+  float dt;
+  float t;
 } utime;
 
-layout (set = 2, binding = 0) uniform sdf_unit_info {
-    uint unit_count;
-    uint add_count;
-    uint sub_count;
+layout (set = 2, binding = 0) uniform sdf_unit_info 
+{
+  uint unit_count;
+  uint add_count;
+  uint sub_count;
 } uunit_info;
 
-layout (set = 3, binding = 0) uniform sdf_unit_data {
-    sdf_unit u[max_sdf_unit_count];
+layout (set = 3, binding = 0) uniform sdf_unit_data 
+{
+  sdf_unit u[max_sdf_unit_count];
 } uunits;
 
-layout (set = 4, binding = 0, scalar) uniform sdf_add_data {
-    uint indices[max_sdf_unit_count];
+layout (set = 4, binding = 0, scalar) uniform sdf_add_data 
+{
+  uint indices[max_sdf_unit_count];
 } uadd_units;
 
-layout (set = 5, binding = 0, scalar) uniform sdf_sub_data {
-    uint indices[max_sdf_unit_count];
+layout (set = 5, binding = 0, scalar) uniform sdf_sub_data 
+{
+  uint indices[max_sdf_unit_count];
 } usub_units;
 
-layout (set = 6, binding = 0) uniform viewer_data {
-    viewer_desc data;
+layout (set = 6, binding = 0) uniform viewer_data 
+{
+  viewer_desc data;
 } uviewer;
 
-float op_union(float d1, float d2) {
-    return min(d1, d2);
+float op_union(float d1, float d2) 
+{
+  return min(d1, d2);
 }
 
-float op_sub(float d1, float d2) { 
-    return max(-d1, d2);
+float op_sub(float d1, float d2) 
+{ 
+  return max(-d1, d2);
 }
 
-float op_intersect(float d1, float d2) {
-    return max(d1, d2);
+float op_intersect(float d1, float d2) 
+{
+  return max(d1, d2);
 }
 
-float op_smooth_union(float d1, float d2, float k) {
-    float h = max(k - abs(d1 - d2), 0.0);
-    return min(d1, d2) - h * h * 0.25 / k;
+float op_smooth_union(float d1, float d2, float k) 
+{
+  float h = max(k - abs(d1 - d2), 0.0);
+  return min(d1, d2) - h * h * 0.25 / k;
 }
 
-float op_smooth_sub(float d1, float d2, float k) {
-    return -op_smooth_union(d1, -d2, k);
+float op_smooth_sub(float d1, float d2, float k) 
+{
+  return -op_smooth_union(d1, -d2, k);
 }
 
-float op_smooth_intersect(float d1, float d2, float k) {
-    return -op_smooth_union(-d1, -d2, k);
+float op_smooth_intersect(float d1, float d2, float k) 
+{
+  return -op_smooth_union(-d1, -d2, k);
 }
 
-float sphere(in vec3 p, in float r) {
-    return length(p) - r;
+float sphere(in vec3 p, in float r) 
+{
+  return length(p) - r;
 }
 
-float cube(vec3 p, vec3 b, float r) {
-    vec3 d = abs(p) - b;
-    return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0)) - r;
+float cube(vec3 p, vec3 b, float r) 
+{
+  vec3 d = abs(p) - b;
+  return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0)) - r;
 }
 
-float map(in vec3 pos) {
-    float d = 1e10;
+float map(in vec3 pos) 
+{
+  float d = 1e10;
 
-    float an = sin(utime.t);
+  float an = sin(utime.t);
 
-    // We need to first go through the intersections then the additions, then the subtractions
-    for (int i = 0; i < uunit_info.add_count; ++i) {
-        uint add_no = uadd_units.indices[i];
-        sdf_unit u = uunits.u[add_no];
+  // We need to first go through the intersections then the additions, then the subtractions
+  for (int i = 0; i < uunit_info.add_count; ++i) 
+  {
+    uint add_no = uadd_units.indices[i];
+    sdf_unit u = uunits.u[add_no];
 
-        float d_unit = 0.0;
+    float d_unit = 0.0;
 
-        switch (u.type) {
-        case sdf_sphere: {
-            d_unit = sphere(pos - u.position.xyz, 0.55);
-        } break;
+    switch (u.type) 
+    {
+    case sdf_sphere: 
+    {
+      d_unit = sphere(pos - u.position.xyz, 0.55);
+    } break;
 
-        case sdf_cube: {
-            d_unit = cube(pos - u.position.xyz, u.scale.xyz, u.scale.w);
-        } break;
+    case sdf_cube: 
+    {
+      d_unit = cube(pos - u.position.xyz, u.scale.xyz, u.scale.w);
+    } break;
 
-        default: {
-            d_unit = 1e10;
-        } break;
-        }
-
-        d = op_smooth_union(d_unit, d, 0.25);
+    default: 
+    {
+      d_unit = 1e10;
+    } break;
     }
 
-    for (int i = 0; i < uunit_info.sub_count; ++i) {
-        uint sub_no = usub_units.indices[i];
-        sdf_unit u = uunits.u[sub_no];
+    d = op_smooth_union(d_unit, d, 0.25);
+  }
 
-        float d_unit = 0.0;
+  for (int i = 0; i < uunit_info.sub_count; ++i) 
+  {
+    uint sub_no = usub_units.indices[i];
+    sdf_unit u = uunits.u[sub_no];
 
-        switch (u.type) {
-        case sdf_sphere: {
-            d_unit = sphere(pos - u.position.xyz, 0.55);
-        } break;
+    float d_unit = 0.0;
 
-        case sdf_cube: {
-            d_unit = cube(pos - u.position.xyz, u.scale.xyz, 0.1);
-        } break;
+    switch (u.type) 
+    {
+    case sdf_sphere: 
+    {
+      d_unit = sphere(pos - u.position.xyz, 0.55);
+    } break;
 
-        default: {
-            d_unit = 1e10;
-        } break;
-        }
+    case sdf_cube: 
+    {
+      d_unit = cube(pos - u.position.xyz, u.scale.xyz, 0.1);
+    } break;
 
-        d = op_smooth_sub(d_unit, d, 0.25);
+    default: 
+    {
+      d_unit = 1e10;
+    } break;
     }
 
-    return d;
+    d = op_smooth_sub(d_unit, d, 0.25);
+  }
+
+  return d;
 }
 
-vec3 calc_normal(in vec3 pos) {
-    const float ep = 0.0001;
-    vec2 e = vec2(1.0,-1.0)*0.5773;
-    return normalize( e.xyy*map( pos + e.xyy*ep ) + 
-            e.yyx*map( pos + e.yyx*ep ) + 
-            e.yxy*map( pos + e.yxy*ep ) + 
-            e.xxx*map( pos + e.xxx*ep ) );
+vec3 calc_normal(in vec3 pos) 
+{
+  const float ep = 0.0001;
+  vec2 e = vec2(1.0,-1.0)*0.5773;
+  return normalize( e.xyy*map( pos + e.xyy*ep ) + 
+    e.yyx*map( pos + e.yyx*ep ) + 
+    e.yxy*map( pos + e.yxy*ep ) + 
+    e.xxx*map( pos + e.xxx*ep ) );
 }
 
-float calc_soft_shadow(in vec3 ro, in vec3 rd, float tmin, float tmax, const float k) {
-	float res = 1.0;
-    float t = tmin;
-    for( int i=0; i<50; i++ ) {
-		float h = map( ro + rd*t );
-        res = min( res, k*h/t );
-        t += clamp( h, 0.02, 0.20 );
-        if(res<0.005 || t>tmax) break;
-    }
+float calc_soft_shadow(in vec3 ro, in vec3 rd, float tmin, float tmax, const float k) 
+{
+  float res = 1.0;
+  float t = tmin;
+  for( int i=0; i<50; i++ ) 
+  {
+    float h = map( ro + rd*t );
+    res = min( res, k*h/t );
+    t += clamp( h, 0.02, 0.20 );
+    if(res<0.005 || t>tmax) break;
+  }
 
-    return clamp(res, 0.0, 1.0);
+  return clamp(res, 0.0, 1.0);
 }
 
-void main_image(out vec4 frag_color, in vec2 frag_coord, vec2 resolution) {
-    vec3 tot = vec3(0.0);
+void main_image(out vec4 frag_color, in vec2 frag_coord, vec2 resolution) 
+{
+  vec3 tot = vec3(0.0);
 
-    vec2 p = (-resolution.xy + 2.0*frag_coord)/resolution.y;
-    vec2 uv_coord = 2.0f * (frag_coord / resolution) - vec2(1.0f);
+  vec2 p = (-resolution.xy + 2.0*frag_coord)/resolution.y;
+  vec2 uv_coord = 2.0f * (frag_coord / resolution) - vec2(1.0f);
 
 #if 0
-    // vec3 ro = vec3(0.0,4.0,8.0);
-    vec3 ro = uviewer.data.wposition;
-    vec3 rd = (uviewer.data.inverse_view * vec4(normalize(vec3(p,-3.5)), 0.0)).xyz;
+  // vec3 ro = vec3(0.0,4.0,8.0);
+  vec3 ro = uviewer.data.wposition;
+  vec3 rd = (uviewer.data.inverse_view * vec4(normalize(vec3(p,-3.5)), 0.0)).xyz;
 #else
-    vec3 ro = uviewer.data.wposition;
-    vec4 screen_pos = vec4(uv_coord, 0.0, 1.0);
-    vec3 rd = (uviewer.data.inverse_view * (vec4((uviewer.data.inverse_projection * screen_pos).xyz, 0.0))).xyz;
-    rd = normalize(rd);
+  vec3 ro = uviewer.data.wposition;
+  vec4 screen_pos = vec4(uv_coord, 0.0, 1.0);
+  vec3 rd = (uviewer.data.inverse_view * (vec4((uviewer.data.inverse_projection * screen_pos).xyz, 0.0))).xyz;
+  rd = normalize(rd);
 #endif
 
-    float t = 7.0;
-    for( int i=0; i<64; i++ ) {
-        vec3 p = ro + t*rd;
-        float h = map(p);
-        if( abs(h)<0.001 || t>11.0 ) break;
-        t += h;
-    }
+  float t = 7.0;
+  for( int i=0; i<64; i++ ) 
+  {
+    vec3 p = ro + t*rd;
+    float h = map(p);
+    if( abs(h)<0.001 || t>11.0 ) break;
+    t += h;
+  }
 
-    vec3 col = vec3(0.0);
+  vec3 col = vec3(0.0);
 
-    if( t<11.0 ) {
-        vec3 pos = ro + t*rd;
-        vec3 nor = calc_normal(pos);
-        vec3  lig = normalize(vec3(1.0,0.8,-0.2));
-        float dif = clamp(dot(nor,lig),0.0,1.0);
-        float sha = calc_soft_shadow( pos, lig, 0.001, 1.0, 16.0 );
-        float amb = 0.5 + 0.5*nor.y;
+  if( t<11.0 ) 
+  {
+    vec3 pos = ro + t*rd;
+    vec3 nor = calc_normal(pos);
+    vec3  lig = normalize(vec3(1.0,0.8,-0.2));
+    float dif = clamp(dot(nor,lig),0.0,1.0);
+    float sha = calc_soft_shadow( pos, lig, 0.001, 1.0, 16.0 );
+    float amb = 0.5 + 0.5*nor.y;
 
-        col = vec3(0.05,0.1,0.15)*amb + 
-            vec3(1.00,0.9,0.80)*dif*sha;
-    }
+    col = vec3(0.05,0.1,0.15)*amb + 
+      vec3(1.00,0.9,0.80)*dif*sha;
+  }
 
-    col = sqrt( col );
-    tot += col;
-    frag_color = vec4( tot, 1.0 );
-    // frag_color = vec4(rd, 1.0);
+  col = sqrt( col );
+  tot += col;
+  frag_color = vec4( tot, 1.0 );
+  // frag_color = vec4(rd, 1.0);
 }
 
-void main() {
-    ivec2 extent = imageSize(ufinal_image).xy;
-    ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+void main() 
+{
+  ivec2 extent = imageSize(ufinal_image).xy;
+  ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 
-    if (pixel_coords.x < extent.x && pixel_coords.y < extent.y) {
+  if (pixel_coords.x < extent.x && pixel_coords.y < extent.y) 
+  {
+    vec4 frag_color = vec4(0.0f);
+    main_image(frag_color, vec2(pixel_coords.x, extent.y - pixel_coords.y), vec2(extent));
 
-        vec4 frag_color = vec4(0.0f);
-        main_image(frag_color, vec2(pixel_coords.x, extent.y - pixel_coords.y), vec2(extent));
-
-        imageStore(ufinal_image, pixel_coords, frag_color);
-    }
+    imageStore(ufinal_image, pixel_coords, frag_color);
+  }
 }

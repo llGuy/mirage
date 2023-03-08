@@ -6,22 +6,25 @@
 #include "core_render.hpp"
 #include "render_context.hpp"
 
-int main(int argc, char **argv) {
-    init_bump_allocator(megabytes(10));
-    init_render_context();
-    init_core_render();
-    init_io_raw();
-    init_time();
+int main(int argc, char **argv) 
+{
+  init_bump_allocator(megabytes(10));
+  init_render_context();
+  init_core_render();
+  init_io_raw();
+  init_time();
 
-    while (is_running()) {
-        tick_io_raw();
+  while (is_running()) 
+  {
+    tick_io_raw();
 
-        if (!overlay_has_focus())
-            tick_debug_viewer();
-        run_render();
-        bump_clear();
-        end_frame_time();
-    }
+    if (!overlay_has_focus())
+      tick_debug_viewer();
 
-    return 0;
+    run_render();
+    bump_clear();
+    end_frame_time();
+  }
+
+  return 0;
 }

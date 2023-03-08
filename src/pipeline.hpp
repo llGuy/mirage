@@ -5,140 +5,135 @@
 
 #include <vulkan/vulkan.h>
 
-enum class pso_shader_type {
+enum class pso_shader_type 
+{
   vertex = VK_SHADER_STAGE_VERTEX_BIT,
   geometry = VK_SHADER_STAGE_GEOMETRY_BIT,
   fragment = VK_SHADER_STAGE_FRAGMENT_BIT
 };
 
-class pso_shader {
+class pso_shader 
+{
 public:
-    pso_shader() = default;
-    pso_shader(const char *path);
+  pso_shader() = default;
+  pso_shader(const char *path);
 
 private:
-    VkShaderModule module_;
-    VkShaderStageFlags stage_;
+  VkShaderModule module_;
+  VkShaderStageFlags stage_;
 
-    friend class pso_config;
+  friend class pso_config;
 };
 
-struct pso_descriptor {
+struct pso_descriptor 
+{
   VkDescriptorType type;
   size_t count;
 };
 
-class pso_config {
+class pso_config 
+{
 public:
-    template <typename ...T>
+  template <typename ...T>
     pso_config(T ...shaders)
     : input_assembly_{},
-      vertex_input_{},
-      viewport_{},
-      rasterization_{},
-      multisample_{},
-      blending_{},
-      rendering_info_{},
-      dynamic_state_{},
-      depth_stencil_{},
-      layouts_{},
-      shader_stages_(sizeof...(shaders)),
-      push_constant_size_(0),
-      viewport_info_{},
-      depth_format_{(VkFormat)0},
-      create_info_{} {
-        shader_stages_.zero();
-        set_shader_stages_(
-            heap_array<pso_shader>({ shaders... }));
+    vertex_input_{},
+    viewport_{},
+    rasterization_{},
+    multisample_{},
+    blending_{},
+    rendering_info_{},
+    dynamic_state_{},
+    depth_stencil_{},
+    layouts_{},
+    shader_stages_(sizeof...(shaders)),
+    push_constant_size_(0),
+    viewport_info_{},
+    depth_format_{(VkFormat)0},
+    create_info_{} 
+  {
+    shader_stages_.zero();
+    set_shader_stages_(
+      heap_array<pso_shader>({ shaders... }));
 
-        set_default_values_();
-    }
+    set_default_values_();
+  }
 
-    void enable_blending_same(
-        uint32_t attachment_idx,
-        VkBlendOp op, VkBlendFactor src, VkBlendFactor dst);
+  void enable_blending_same(uint32_t attachment_idx,
+    VkBlendOp op, VkBlendFactor src, VkBlendFactor dst);
 
-    void enable_depth_testing();
+  void enable_depth_testing();
 
-    template <typename ...T>
-    void configure_layouts(
-        size_t push_constant_size,
-        T ...layouts) {
-        push_constant_size_ = push_constant_size;
-        layouts_ = heap_array<VkDescriptorSetLayout>({get_descriptor_set_layout(layouts.type, layouts.count)...});
-    }
+  template <typename ...T>
+  void configure_layouts(size_t push_constant_size, T ...layouts) 
+  {
+    push_constant_size_ = push_constant_size;
+    layouts_ = heap_array<VkDescriptorSetLayout>({get_descriptor_set_layout(layouts.type, layouts.count)...});
+  }
 
-    void configure_vertex_input(uint32_t attrib_count, uint32_t binding_count);
+  void configure_vertex_input(uint32_t attrib_count, uint32_t binding_count);
+  void set_binding(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate);
+  void set_binding_attribute(uint32_t location, uint32_t binding, VkFormat format, uint32_t offset);
+  void set_topology(VkPrimitiveTopology topology);
+  void set_to_wireframe();
 
-    void set_binding(
-        uint32_t binding, uint32_t stride, VkVertexInputRate input_rate);
+  void add_color_attachment(VkFormat format, VkBlendOp op = VK_BLEND_OP_MAX_ENUM,
+    VkBlendFactor src = VK_BLEND_FACTOR_MAX_ENUM,
+    VkBlendFactor dst = VK_BLEND_FACTOR_MAX_ENUM);
 
-    void set_binding_attribute(
-        uint32_t location, uint32_t binding, VkFormat format, uint32_t offset);
-
-    void set_topology(VkPrimitiveTopology topology);
-    void set_to_wireframe();
-
-    void add_color_attachment(
-        VkFormat format, 
-        VkBlendOp op = VK_BLEND_OP_MAX_ENUM,
-        VkBlendFactor src = VK_BLEND_FACTOR_MAX_ENUM,
-        VkBlendFactor dst = VK_BLEND_FACTOR_MAX_ENUM);
-
-    void add_depth_attachment(VkFormat format);
+  void add_depth_attachment(VkFormat format);
 
 private:
-    void set_default_values_();
-
-    void set_shader_stages_(
-        const heap_array<pso_shader> &sources);
-
-    void finish_configuration_();
+  void set_default_values_();
+  void set_shader_stages_(const heap_array<pso_shader> &sources);
+  void finish_configuration_();
 
 private:
-    VkPipelineInputAssemblyStateCreateInfo input_assembly_;
-    VkPipelineVertexInputStateCreateInfo vertex_input_;
-    heap_array<VkVertexInputAttributeDescription> attributes_;
-    heap_array<VkVertexInputBindingDescription> bindings_;
-    VkViewport viewport_;
-    VkRect2D rect_;
-    VkPipelineViewportStateCreateInfo viewport_info_;
-    VkPipelineRasterizationStateCreateInfo rasterization_;
-    VkPipelineMultisampleStateCreateInfo multisample_;
-    VkPipelineColorBlendStateCreateInfo blending_;
-    VkPipelineDynamicStateCreateInfo dynamic_state_;
-    heap_array<VkDynamicState> dynamic_states_;
-    VkPipelineDepthStencilStateCreateInfo depth_stencil_;
-    heap_array<VkDescriptorSetLayout> layouts_;
-    heap_array<VkPipelineShaderStageCreateInfo> shader_stages_;
+  VkPipelineInputAssemblyStateCreateInfo input_assembly_;
+  VkPipelineVertexInputStateCreateInfo vertex_input_;
+  heap_array<VkVertexInputAttributeDescription> attributes_;
+  heap_array<VkVertexInputBindingDescription> bindings_;
+  VkViewport viewport_;
+  VkRect2D rect_;
+  VkPipelineViewportStateCreateInfo viewport_info_;
+  VkPipelineRasterizationStateCreateInfo rasterization_;
+  VkPipelineMultisampleStateCreateInfo multisample_;
+  VkPipelineColorBlendStateCreateInfo blending_;
+  VkPipelineDynamicStateCreateInfo dynamic_state_;
+  heap_array<VkDynamicState> dynamic_states_;
+  VkPipelineDepthStencilStateCreateInfo depth_stencil_;
+  heap_array<VkDescriptorSetLayout> layouts_;
+  heap_array<VkPipelineShaderStageCreateInfo> shader_stages_;
 
-    VkFormat depth_format_;
-    std::vector<VkFormat> attachment_formats_;
-    VkPipelineRenderingCreateInfo rendering_info_;
-    std::vector<VkPipelineColorBlendAttachmentState> blend_states_;
+  VkFormat depth_format_;
+  std::vector<VkFormat> attachment_formats_;
+  VkPipelineRenderingCreateInfo rendering_info_;
+  std::vector<VkPipelineColorBlendAttachmentState> blend_states_;
 
-    size_t push_constant_size_;
+  size_t push_constant_size_;
 
-    VkGraphicsPipelineCreateInfo create_info_;
+  VkGraphicsPipelineCreateInfo create_info_;
 
-    VkPipelineLayout pso_layout_;
+  VkPipelineLayout pso_layout_;
 
-    friend class pso;
+  friend class pso;
 };
 
-class pso {
+class pso 
+{
 public:
-    pso() = default;
-    pso(pso_config &config);
+  pso() = default;
+  pso(pso_config &config);
 
-    void bind(VkCommandBuffer cmdbuf);
-    void push_constant(void *data, uint32_t size);
+  void bind(VkCommandBuffer cmdbuf);
+  void push_constant(void *data, uint32_t size);
 
-    inline VkPipelineLayout pso_layout() {
-        return layout_;
-    }
+  inline VkPipelineLayout pso_layout() 
+  {
+    return layout_;
+  }
 
 private:
-    VkPipeline pipeline_;
-    VkPipelineLayout layout_;
+  VkPipeline pipeline_;
+  VkPipelineLayout layout_;
 };

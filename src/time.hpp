@@ -1,9 +1,10 @@
 #pragma once
 
-extern struct time_data {
-    float frame_dt;
-    float current_time;
-    float max_fps;
+extern struct time_data 
+{
+  float frame_dt;
+  float current_time;
+  float max_fps;
 } *gtime;
 
 void init_time();

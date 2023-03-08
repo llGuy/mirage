@@ -12,42 +12,43 @@
   if (call != VK_SUCCESS) { log_error("%s failed\n", #call); panic_and_exit(); }
 
 // Global render context
-extern struct render_context {
-    // Various flags
-    u32 is_validation_enabled : 1;
+extern struct render_context 
+{
+  // Various flags
+  u32 is_validation_enabled : 1;
 
-    // Instance
-    VkInstance instance;
-    heap_array<const char *> layers;
+  // Instance
+  VkInstance instance;
+  heap_array<const char *> layers;
 
-    // Device
-    VkPhysicalDevice gpu;
-    VkDevice device;
-    s32 graphics_family, present_family;
-    VkQueue graphics_queue, present_queue;
+  // Device
+  VkPhysicalDevice gpu;
+  VkDevice device;
+  s32 graphics_family, present_family;
+  VkQueue graphics_queue, present_queue;
 
-    // Window / Surface
-    GLFWwindow *window;
-    u32 window_width, window_height;
-    VkSurfaceKHR surface;
-    VkSwapchainKHR swapchain;
-    VkExtent2D swapchain_extent;
-    VkFormat swapchain_format;
-    heap_array<VkImage> images;
-    heap_array<VkImageView> image_views;
+  // Window / Surface
+  GLFWwindow *window;
+  u32 window_width, window_height;
+  VkSurfaceKHR surface;
+  VkSwapchainKHR swapchain;
+  VkExtent2D swapchain_extent;
+  VkFormat swapchain_format;
+  heap_array<VkImage> images;
+  heap_array<VkImageView> image_views;
 
-    // Debug capabilities
-    VkDebugUtilsMessengerEXT messenger;
+  // Debug capabilities
+  VkDebugUtilsMessengerEXT messenger;
 
-    // Other shit
-    VkCommandPool command_pool;
-    VkDescriptorPool descriptor_pool;
-    descriptor_set_layout_category layout_categories[descriptor_set_layout_category::category_count];
+  // Other shit
+  VkCommandPool command_pool;
+  VkDescriptorPool descriptor_pool;
+  descriptor_set_layout_category layout_categories[descriptor_set_layout_category::category_count];
 
-    // Debug overlay
-    VkRenderPass imgui_render_pass;
+  // Debug overlay
+  VkRenderPass imgui_render_pass;
 
-    uint32_t max_push_constant_size;
+  uint32_t max_push_constant_size;
 } *gctx;
 
 void init_render_context();

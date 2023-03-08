@@ -8,6 +8,7 @@ void *bump_alloc(u32 size);
 void bump_clear();
 
 template <typename T>
-T *bump_mem_alloc(u32 count = 1) {
-    return (T *)bump_alloc(sizeof(T) * count);
+T *bump_mem_alloc(u32 count = 1) 
+{
+  return (T *)bump_alloc(sizeof(T) * count);
 }
