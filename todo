@@ -1,0 +1,4 @@
+- Rasterize cubes with the CPU backend to the octree scene representation
+- Make sure to handle the case where the desired level is higher than what
+  the octree currently holds (also argue whether this case is even possible?
+- With rasterized cubes, trace the SDFs inside

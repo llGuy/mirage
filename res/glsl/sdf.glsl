@@ -1,13 +1,10 @@
 #ifndef SDF_GLSL
 #define SDF_GLSL
 
-
 #define max_sdf_unit_count 32
-
 
 #define sdf_sphere 0x0
 #define sdf_cube   0x1
-
 
 #define sdf_union               0x0
 #define sdf_sub                 0x1
@@ -15,7 +12,6 @@
 #define sdf_smooth_union        0x3
 #define sdf_smooth_sub          0x4
 #define sdf_smooth_intersect    0x5
-
 
 struct sdf_unit 
 {
@@ -28,5 +24,11 @@ struct sdf_unit
   uint pad1;
 };
 
+struct sdf_render_instance
+{
+  vec3 wposition;
+  uint level;
+  uint sdf_list_node_idx;
+};
 
 #endif

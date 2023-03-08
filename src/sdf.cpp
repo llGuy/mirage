@@ -163,10 +163,10 @@ void init_sdf_units(render_graph &graph)
 
   register_debug_overlay_client("SDF Units", sdf_manipulator_, true);
 
-  init_sdf_octree();
+  init_sdf_octree(graph);
 }
 
-void update_sdf_units(render_graph &graph) 
+void update_sdf_units() 
 {
 #if 1
   // Some objects are moving - offset by a sine wave
@@ -183,8 +183,10 @@ void update_sdf_units(render_graph &graph)
 
   clear_sdf_octree();
   update_sdf_octree();
+}
 
-  // Record command to update sdf units buffer
+void render_sdf(render_graph &graph)
+{
   graph.add_buffer_update(RES("sdf-info-buffer"), &ggfx->units_info);
   graph.add_buffer_update(RES("sdf-units-buffer"), ggfx->units_arrays.units);
   graph.add_buffer_update(RES("sdf-add-buffer"), ggfx->units_arrays.add_units);

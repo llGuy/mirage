@@ -1,3 +1,7 @@
+/* This is the CPU backend of the octree - provides octree subdivision,
+ * SDF list node creation - and feeds all this data to storage buffers
+ * for rendering */
+
 #include <imgui.h>
 #include <ImGuizmo.h>
 #include "core_render.hpp"
@@ -12,13 +16,22 @@
 #include "sdf.hpp"
 #include "viewer.hpp"
 
+// Supported voxel node sizes: 1, 2, 4, 8, 16, 32, 64, etc...
 #define OCTREE_NODE_WIDTH 2
 #define MAX_SDF_RENDER_INSTANCES 1024
 // (roughly) Pixel width/height or each octree node
 #define OCTREE_NODE_SCREEN_SIZE 128
 #define OCTREE_NODE_SCALE (1.0f)
 
-// Supported voxel node sizes: 1, 2, 4, 8, 16, 32, 64, etc...
+template <typename T>
+void apply_3d(iv3 dim, T pred)
+{
+  iv3 off = iv3(0);
+  for (off.z = 0; off.z < OCTREE_NODE_WIDTH; ++off.z) 
+    for (off.y = 0; off.y < OCTREE_NODE_WIDTH; ++off.y) 
+      for (off.x = 0; off.x < OCTREE_NODE_WIDTH; ++off.x) 
+        pred(off);
+}
 
 v2 pos_to_pixel_coords(v2 ndc) 
 {
@@ -139,8 +152,8 @@ struct sdf_list_node
 /* For now, just store this stuff - in future, will compact */
 struct sdf_render_instance 
 {
-  u32 sdf_list_node_idx;
   v3 wposition;
+  u32 sdf_list_node_idx;
   u32 level; // Enforces the scale of the cube
 };
 
@@ -513,19 +526,11 @@ void add_sdf_unit(const sdf_unit &u, u32 u_id)
   v3 rng = cube_end - cube_start;
   v3 count = rng / cube_width;
 
-  iv3 off = iv3(0);
-  for (off.z = 0; off.z < count.z; ++off.z) 
+  apply_3d(count, [&](const iv3 &off)
   {
-    for (off.y = 0; off.y < count.y; ++off.y) 
-    {
-      for (off.x = 0; off.x < count.x; ++off.x) 
-      {
-        v3 pos = cube_start + v3(off) * cube_width;
-
-        insert_sdf_node_into_octree(level, pos, u_id);
-      }
-    }
-  }
+    v3 pos = cube_start + v3(off) * cube_width;
+    insert_sdf_node_into_octree(level, pos, u_id);
+  });
 
   // Just for debugging purposes
   if (ggfx->units_debug.selected_manipulator == u.manipulator) 
@@ -619,38 +624,34 @@ static void dbg_add_octree_lines_(node_info *node, v3 center, float level)
   {
     octree_node *node_ptr = octree_nodes_.get_node(node_loc(*node));
 
-    // Recursively call this function for children
-    iv3 off = iv3(0);
-    for (off.z = 0; off.z < OCTREE_NODE_WIDTH; ++off.z) 
+    apply_3d(iv3(OCTREE_NODE_WIDTH), [&](const iv3 &off)
     {
-      for (off.y = 0; off.y < OCTREE_NODE_WIDTH; ++off.y) 
-      {
-        for (off.x = 0; off.x < OCTREE_NODE_WIDTH; ++off.x) 
-        {
-          v3 new_center = level_start_pos + 
-            v3(off) * child_node_size + v3(child_node_size/2.0f);
+      v3 new_center = level_start_pos + 
+        v3(off) * child_node_size + v3(child_node_size/2.0f);
 
-          node_info *child_node = &node_ptr->child_nodes[off.z][off.y][off.x];
+      node_info *child_node = &node_ptr->child_nodes[off.z][off.y][off.x];
 
-          dbg_add_octree_lines_(child_node, new_center, level-1.0f);
-        }
-      }
-    }
+      dbg_add_octree_lines_(child_node, new_center, level-1.0f);
+    });
   }
 }
 
 // Also register the buffers that will be used
-void init_sdf_octree() 
+void init_sdf_octree(render_graph &graph) 
 {
+  // Initialize octree information
   octree_max_level_ = 8.0f;
-
   octree_nodes_ = arena_pool<octree_node>(1024);
-  sdf_list_nodes_ = arena_pool<sdf_list_node>(1024);
-
   root_ = create_node_info(true, false, octree_nodes_.get_node_idx(octree_nodes_.alloc()));
 
+  // Initialize SDF list nodes (containing SDF information at octree leaves)
+  sdf_list_nodes_ = arena_pool<sdf_list_node>(1024);
   sdf_render_instances_ = heap_array<sdf_render_instance>(MAX_SDF_RENDER_INSTANCES);
+  
+  // Rendering
 
+
+  // Debugging
   register_debug_overlay_client("SDF Octree Gen", sdf_octree_gen_debug_proc_, true);
 }
 

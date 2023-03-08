@@ -1,8 +1,28 @@
+/* The way the SDF get rendered (just visibility) is as follows:
+ * - We put all the SDF render instances in a vertex buffer where
+ *   each instance corresponds to an actual "instance" in vkCmdDraw
+ * - They get read into this shader which uses that SDF render instance
+ *   information to rasterize a cube
+ * - The fragment shader runs the tracing code just through the volume
+ *   of the cube */
+
 #version 450
 
+#extension GL_EXT_scalar_block_layout : require
+
+#include "sdf.glsl"
 #include "viewer.glsl"
 
-layout (set = 0, binding = 0) uniform viewer_data 
+// Outputs just the SDF list node
+layout (location = 0) flat out uint out_sdf_list_node;
+
+// Get vertex information from here
+layout (set = 0, binding = 0, scalar) readonly buffer sdf_render_instances
+{
+  sdf_render_instance data[];
+} usdf_instances;
+
+layout (set = 1, binding = 0) uniform viewer_data 
 {
   viewer_desc data;
 } uviewer;
@@ -45,8 +65,16 @@ const uint indices[] = uint[]
 
 void main() 
 {
+  // Get local space cube vertices
   uint idx = indices[gl_VertexIndex];
   vec3 vtx = positions[idx];
 
-  // gl_Position = uviewer.data.
+  // Transform the vertices to world space
+  sdf_render_instance inst = usdf_instances.data[gl_InstanceIndex];
+  float scale = exp2(inst.level);
+  vtx = inst.wposition + scale * vtx;
+
+  // Finalize
+  gl_Position = uviewer.data.view_projection * vec4(vtx, 1.0);
+  out_sdf_list_node = inst.sdf_list_node_idx;
 }

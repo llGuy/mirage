@@ -68,8 +68,9 @@ struct sdf_debug
 };
 
 void init_sdf_units(render_graph &graph);
-void update_sdf_units(render_graph &graph);
-void init_sdf_octree();
+void update_sdf_units();
+void init_sdf_octree(render_graph &graph);
 void clear_sdf_octree();
 void add_sdf_unit(const sdf_unit &u, u32 u_id);
 void update_sdf_octree();
+void render_sdf(render_graph &graph);
