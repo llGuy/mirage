@@ -195,8 +195,10 @@ static arena_pool<octree_node> octree_nodes_;
 
 // Pool of SDF leaf nodes
 static arena_pool<sdf_list_node> sdf_list_nodes_;
+
 // List of SDF cube nodes
 static heap_array<sdf_render_instance> sdf_render_instances_;
+static uint32_t sdf_render_instance_count_;
 
 // Max level of the octree
 static float octree_max_level_;
@@ -229,9 +231,6 @@ static void sdf_octree_gen_debug_proc_() {
     ImGui::Text("Count: %f %f %f", debug_.count.x, debug_.count.y, debug_.count.z);
     ImGui::Text("Cube Start: %f %f %f", debug_.cube_start.x, debug_.cube_start.y, debug_.cube_start.z);
     ImGui::Text("Cube End: %f %f %f", debug_.cube_end.x, debug_.cube_end.y, debug_.cube_end.z);
-
-    // m4x4 tx = glm::translate(debug_.cube_center) * glm::scale(v3(cube_width/2.0f));
-    // ImGuizmo::DrawCubes(&viewer.view[0][0], &viewer.projection[0][0], &tx[0][0], 1);
 }
 
 void init_sdf_octree() {
@@ -394,8 +393,9 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value) {
     v3 center = v3(0.0f);
     bool found = false;
 
-    for (int i = (int)octree_max_level_; i >= 0; --i) {
-        if (dst_level == i || is_node_leaf(*current_node)) {
+    int final_level = (int)octree_max_level_;
+    for (; final_level >= 0; --final_level) {
+        if (dst_level == final_level || is_node_leaf(*current_node)) {
             found = true;
             break;
         }
@@ -409,7 +409,7 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value) {
         }
 
         // Current subdivision level
-        float current_level = (float)i;
+        float current_level = (float)final_level;
         float node_size = glm::pow(2.0f, current_level);
         float child_node_size = node_size / 2.0f;
 
@@ -441,8 +441,18 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value) {
         if (!node_has_data(*current_node)) {
             // Node has data and is a leaf
             node_info new_node = create_node_info(
-                    true, true, sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc()));
+                true, true, sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc()));
             *current_node = new_node;
+
+            // v3 lower_pos = 
+            // TODO
+
+            // Every time we create a new leaf node, we need to push it to the render instances array
+            sdf_render_instance inst = {
+                .level = (u32)final_level,
+                .sdf_list_node_idx = node_loc(*current_node),
+                .wposition = pos
+            };
         }
     }
 
