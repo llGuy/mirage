@@ -9,7 +9,7 @@
 using debug_overlay_proc = void (*)();
 
 void init_debug_overlay();
-void render_debug_overlay(VkCommandBuffer cmdbuf);
+void render_debug_overlay(VkCommandBuffer cmdbuf, graph_resource_tracker &tracker);
 
 void register_debug_overlay_client(const char *name, debug_overlay_proc proc, bool open_by_default = false);
 

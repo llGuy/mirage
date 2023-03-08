@@ -120,6 +120,7 @@ void init_sdf_units(render_graph &graph) {
         .type = sdf_sphere, .op = sdf_smooth_add
     }, info, arrays, debug);
 
+#if 1
     add_sdf_unit_({
         .position = v4(-1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.03),
         .type = sdf_cube, .op = sdf_smooth_add
@@ -134,6 +135,7 @@ void init_sdf_units(render_graph &graph) {
         .position = v4(1.0, 0.0, 1.0, 1.0), .scale = v4(0.6, 0.2, 0.7, 0.03),
         .type = sdf_cube, .op = sdf_smooth_add
     }, info, arrays, debug);
+#endif
 
     graph.register_buffer(RES("sdf-units-buffer"))
         .configure({ .size = max_sdf_unit_count * sizeof(sdf_unit) });
@@ -153,6 +155,7 @@ void init_sdf_units(render_graph &graph) {
 }
 
 void update_sdf_units(render_graph &graph) {
+#if 1
     // Some objects are moving - offset by a sine wave
     float sn = glm::sin(gtime->current_time);
     float cn = glm::cos(gtime->current_time);
@@ -163,6 +166,7 @@ void update_sdf_units(render_graph &graph) {
     sphere1->position.y = 0.5 + 0.3 * sn;
     sphere2->position.x = 1.0 + 0.3 * sn;
     sphere2->position.z = 1.0 + 0.3 * cn;
+#endif
 
     clear_sdf_octree();
     update_sdf_octree();

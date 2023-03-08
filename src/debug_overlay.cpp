@@ -81,7 +81,7 @@ void init_debug_overlay() {
     dbg_line_pso_ = pso(dbg_line_config);
 }
 
-void render_debug_overlay(VkCommandBuffer cmdbuf) {
+void render_debug_overlay(VkCommandBuffer cmdbuf, graph_resource_tracker &tracker) {
     static bool draw_screen_boundary = true;
     static bool draw_octree = false;
 
@@ -98,8 +98,25 @@ void render_debug_overlay(VkCommandBuffer cmdbuf) {
     }
 
     if (draw_octree) {
+        // tracker.prepare_buffer_for(RES("viewer-buffer"), binding::type::uniform_buffer, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+
+        VkDescriptorSet viewer_set = tracker.get_buffer(RES("viewer-buffer"))
+            .descriptor(binding::type::uniform_buffer);
+
+        dbg_line_pso_.bind(cmdbuf);
+
+        // Bind viewer uniform buffer
+        vkCmdBindDescriptorSets(
+            cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            dbg_line_pso_.pso_layout(), 0, 1, &viewer_set, 0, nullptr);
+
         for (auto &line : lines_) {
-            dbg_line_pso_.bind(cmdbuf);
+
+            // Push line information
+            vkCmdPushConstants(cmdbuf, dbg_line_pso_.pso_layout(), VK_SHADER_STAGE_ALL,
+                0, sizeof(line), &line);
+
+            vkCmdDraw(cmdbuf, 2, 1, 0, 0);
         }
     }
 
@@ -148,6 +165,7 @@ void render_debug_overlay(VkCommandBuffer cmdbuf) {
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdbuf);
 
     rectangles_.clear();
+    lines_.clear();
 }
 
 void register_debug_overlay_client(const char *name, debug_overlay_proc proc, bool open_by_default) {
@@ -160,4 +178,8 @@ bool overlay_has_focus() {
 
 void add_debug_rectangle(const dbg_rectangle &rect) {
     rectangles_.push_back(rect);
+}
+
+void add_debug_line(const dbg_line &line) {
+    lines_.push_back(line);
 }

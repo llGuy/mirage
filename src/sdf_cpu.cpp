@@ -127,6 +127,7 @@ struct sdf_render_instance {
     u32 level; // Enforces the scale of the cube
 };
 
+/* Used to make all sdf/node allocations - simple and dumb */
 template <typename T>
 class arena_pool {
 public:
@@ -229,12 +230,12 @@ static void sdf_octree_gen_debug_proc_() {
     ImGui::Text("Cube Start: %f %f %f", debug_.cube_start.x, debug_.cube_start.y, debug_.cube_start.z);
     ImGui::Text("Cube End: %f %f %f", debug_.cube_end.x, debug_.cube_end.y, debug_.cube_end.z);
 
-    m4x4 tx = glm::translate(debug_.cube_center) * glm::scale(v3(cube_width/2.0f));
-    ImGuizmo::DrawCubes(&viewer.view[0][0], &viewer.projection[0][0], &tx[0][0], 1);
+    // m4x4 tx = glm::translate(debug_.cube_center) * glm::scale(v3(cube_width/2.0f));
+    // ImGuizmo::DrawCubes(&viewer.view[0][0], &viewer.projection[0][0], &tx[0][0], 1);
 }
 
 void init_sdf_octree() {
-    octree_max_level_ = 4.0f;
+    octree_max_level_ = 8.0f;
 
     octree_nodes_ = arena_pool<octree_node>(1024);
     sdf_list_nodes_ = arena_pool<sdf_list_node>(1024);
@@ -430,19 +431,19 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value) {
         center = level_start_pos + v3(child_idx) * child_node_size + v3(child_node_size/2.0f);
 
         octree_node *node_ptr = octree_nodes_.get_node(node_loc(*current_node));
-        current_node = &node_ptr->child_nodes[child_idx.x][child_idx.y][child_idx.z];
+        current_node = &node_ptr->child_nodes[child_idx.z][child_idx.y][child_idx.x];
     }
 
     assert(found);
 
     if (!is_node_leaf(*current_node)) {
         // This means that this node wasn't created yet - must create (must be an empty node as of now)
-        assert(!node_has_data(*current_node));
-
-        // Node has data and is a leaf
-        node_info new_node = create_node_info(
-            true, true, sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc()));
-        *current_node = new_node;
+        if (!node_has_data(*current_node)) {
+            // Node has data and is a leaf
+            node_info new_node = create_node_info(
+                    true, true, sdf_list_nodes_.get_node_idx(sdf_list_nodes_.alloc()));
+            *current_node = new_node;
+        }
     }
 
     // Now that that the node is definitely created and valid, we can proceed wth adding
@@ -494,9 +495,102 @@ void add_sdf_unit(const sdf_unit &u, u32 u_id) {
     }
 }
 
+static void add_cube_outline_(v3 low, v3 high) {
+    v4 color = v4(1.0f, 0.0f, 0.0f, 1.0f);
+
+    v3 rng = high - low;
+
+    v4 cube_positions[8] = {
+        v4(0.0f, 0.0f, 0.0f, 1.0f),
+        v4(0.0f, 0.0f, 1.0f, 1.0f),
+        v4(0.0f, 1.0f, 0.0f, 1.0f),
+        v4(0.0f, 1.0f, 1.0f, 1.0f),
+        v4(1.0f, 0.0f, 0.0f, 1.0f),
+        v4(1.0f, 0.0f, 1.0f, 1.0f),
+        v4(1.0f, 1.0f, 0.0f, 1.0f),
+        v4(1.0f, 1.0f, 1.0f, 1.0f),
+    };
+
+    for (int i = 0; i < 8; ++i)
+        cube_positions[i] = v4(low, 0.0f) + cube_positions[i] * v4(rng, 1.0f);
+
+    dbg_line line = { .color = color };
+
+    line.positions[0] = cube_positions[0];
+    line.positions[1] = cube_positions[4];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[1];
+    line.positions[1] = cube_positions[5];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[2];
+    line.positions[1] = cube_positions[6];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[3];
+    line.positions[1] = cube_positions[7];
+    add_debug_line(line);
+
+    line.positions[0] = cube_positions[0];
+    line.positions[1] = cube_positions[1];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[0];
+    line.positions[1] = cube_positions[2];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[1];
+    line.positions[1] = cube_positions[3];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[2];
+    line.positions[1] = cube_positions[3];
+    add_debug_line(line);
+
+    line.positions[0] = cube_positions[4];
+    line.positions[1] = cube_positions[5];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[4];
+    line.positions[1] = cube_positions[6];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[5];
+    line.positions[1] = cube_positions[7];
+    add_debug_line(line);
+    line.positions[0] = cube_positions[6];
+    line.positions[1] = cube_positions[7];
+    add_debug_line(line);
+}
+
+static void dbg_add_octree_lines_(node_info *node, v3 center, float level) {
+    // Just render this node's squares
+    float node_size = glm::pow(2.0f, level);
+    float child_node_size = node_size / 2.0f;
+
+    v3 level_start_pos = center - v3(child_node_size);
+    v3 level_end_pos = center + v3(child_node_size);
+
+    add_cube_outline_(level_start_pos, level_end_pos);
+
+    if (node_has_data(*node) && !is_node_leaf(*node)) {
+        octree_node *node_ptr = octree_nodes_.get_node(node_loc(*node));
+
+        // Recursively call this function for children
+        iv3 off = iv3(0);
+        for (off.z = 0; off.z < OCTREE_NODE_WIDTH; ++off.z) {
+            for (off.y = 0; off.y < OCTREE_NODE_WIDTH; ++off.y) {
+                for (off.x = 0; off.x < OCTREE_NODE_WIDTH; ++off.x) {
+                    v3 new_center = level_start_pos + 
+                        v3(off) * child_node_size + v3(child_node_size/2.0f);
+
+                    node_info *child_node = &node_ptr->child_nodes[off.z][off.y][off.x];
+
+                    dbg_add_octree_lines_(child_node, new_center, level-1.0f);
+                }
+            }
+        }
+    }
+}
+
 void update_sdf_octree() {
     for (int i = 0; i < ggfx->units_info.unit_count; ++i) {
         sdf_unit &u = ggfx->units_arrays.units[i];
         add_sdf_unit(u, i);
     }
+
+    dbg_add_octree_lines_(&root_, v3(0.0f), octree_max_level_);
 }

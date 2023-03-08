@@ -894,13 +894,13 @@ binding &transfer_operation::get_binding(uint32_t idx) {
 
 
 /************************* Resource Synchronizatin ****************/
-graph_resource_synchronizer::graph_resource_synchronizer(
+graph_resource_tracker::graph_resource_tracker(
     VkCommandBuffer cmdbuf, render_graph *builder)
 : builder_(builder), cmdbuf_(cmdbuf) {
 
 }
 
-void graph_resource_synchronizer::prepare_buffer_for(
+void graph_resource_tracker::prepare_buffer_for(
     const uid_string &uid, binding::type type, VkPipelineStageFlags stage) {
     gpu_buffer &buf = builder_->get_buffer_(uid.id);
 
@@ -919,6 +919,10 @@ void graph_resource_synchronizer::prepare_buffer_for(
 
     buf.current_access_ = b.get_buffer_access();
     buf.last_used_ = stage;
+}
+
+gpu_buffer &graph_resource_tracker::get_buffer(const uid_string &uid) {
+    return builder_->get_buffer_(uid.id);
 }
 
 
@@ -1392,8 +1396,8 @@ void render_graph::present(const uid_string &res_uid) {
     recorded_stages_.push_back(graph_stage_ref_present);
 }
 
-graph_resource_synchronizer render_graph::get_resource_synchronizer() {
-    return graph_resource_synchronizer(current_cmdbuf_, this);
+graph_resource_tracker render_graph::get_resource_tracker() {
+    return graph_resource_tracker(current_cmdbuf_, this);
 }
 
 // Cmdbuf generators...

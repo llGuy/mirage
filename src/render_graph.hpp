@@ -385,6 +385,14 @@ public:
     // Actually allocates the memory and creates the resource
     gpu_buffer &alloc();
 
+    inline VkBuffer buffer() {
+        return buffer_;
+    }
+
+    inline VkDescriptorSet descriptor(binding::type t) {
+        return get_descriptor_set_(t);
+    }
+
 private:
     void update_action_(const binding &b);
     void apply_action_();
@@ -419,7 +427,7 @@ private:
     friend class render_pass;
     friend class graph_resource;
     friend class transfer_operation;
-    friend class graph_resource_synchronizer;
+    friend class graph_resource_tracker;
 };
 
 class gpu_image {
@@ -654,12 +662,16 @@ public:
     void submit_command_buffer(const cmdbuf_info &info, VkPipelineStageFlags stage) override;
 };
 
-/* Resource synchronizer for more fine grained resource synchronization */
-class graph_resource_synchronizer {
+/* Resource tracker for more fine grained resource synchronization */
+class graph_resource_tracker {
 public:
-    graph_resource_synchronizer(VkCommandBuffer cmdbuf, render_graph *builder);
+    graph_resource_tracker(VkCommandBuffer cmdbuf, render_graph *builder);
 
+    // Prepare resources for certain usages
     void prepare_buffer_for(const uid_string &, binding::type type, VkPipelineStageFlags stage);
+
+    // Access the resources directly
+    gpu_buffer &get_buffer(const uid_string &uid);
 
 private:
     render_graph *builder_;
@@ -702,7 +714,7 @@ public:
     // Make sure that this image is what gets presented to the screen
     void present(const uid_string &);
 
-    graph_resource_synchronizer get_resource_synchronizer();
+    graph_resource_tracker get_resource_tracker();
 
 private:
     void prepare_pass_graph_stage_(graph_stage_ref ref);
@@ -793,7 +805,7 @@ private:
     friend class gpu_image;
     friend class gpu_buffer;
     friend class transfer_operation;
-    friend class graph_resource_synchronizer;
+    friend class graph_resource_tracker;
 };
 
 #define RES(x) (uid_string{     \

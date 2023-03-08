@@ -100,7 +100,8 @@ void run_render() {
         pass.add_color_attachment(RES("sdf-cast-target"));
         pass.draw_commands(
             [] (render_pass::draw_package package) {
-                render_debug_overlay(package.cmdbuf);
+                auto tracker = package.graph->get_resource_tracker();
+                render_debug_overlay(package.cmdbuf, tracker);
             }, nullptr);
     }
 
