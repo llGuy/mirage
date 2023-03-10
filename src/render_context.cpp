@@ -150,6 +150,32 @@ struct queue_families
   }
 };
 
+VkFormat find_suitable_depth_format_(VkFormat *formats, uint32_t format_count,
+  VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+  for (uint32_t i = 0; i < format_count; ++i) 
+  {
+    VkFormatProperties properties;
+    vkGetPhysicalDeviceFormatProperties(gctx->gpu, formats[i], &properties);
+
+    if (tiling == VK_IMAGE_TILING_LINEAR && 
+        (properties.linearTilingFeatures & features) == features) 
+    {
+      return formats[i];
+    }
+    else if (tiling == VK_IMAGE_TILING_OPTIMAL && 
+             (properties.optimalTilingFeatures & features) == features) 
+    {
+      return formats[i];
+    }
+  }
+
+  log_error("Found no depth formats!\n");
+  panic_and_exit();
+
+  return VkFormat(0);
+}
+
 static void init_device_() 
 {
   std::vector<const char *> extensions = 
@@ -278,6 +304,17 @@ static void init_device_()
   vkCmdDebugMarkerInsert = (PFN_vkCmdDebugMarkerInsertEXT)vkGetDeviceProcAddr(gctx->device, "vkCmdDebugMarkerInsertEXT");
   vkCmdBeginRenderingKHR_proc = (PFN_vkCmdBeginRenderingKHR)(vkGetDeviceProcAddr(gctx->device, "vkCmdBeginRenderingKHR"));
   vkCmdEndRenderingKHR_proc = (PFN_vkCmdEndRenderingKHR)(vkGetDeviceProcAddr(gctx->device, "vkCmdEndRenderingKHR"));
+
+  // Find depth format
+  VkFormat formats[] =
+  {
+    VK_FORMAT_D32_SFLOAT,
+    VK_FORMAT_D32_SFLOAT_S8_UINT,
+    VK_FORMAT_D24_UNORM_S8_UINT
+  };
+
+  gctx->depth_format = find_suitable_depth_format_(
+    formats, 3, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 static void init_swapchain_() 

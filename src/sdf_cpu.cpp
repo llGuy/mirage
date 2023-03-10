@@ -4,36 +4,54 @@
 
 #include <imgui.h>
 #include <ImGuizmo.h>
+#include "arena.hpp"
 #include "core_render.hpp"
 #include "debug_overlay.hpp"
-#include "glm/common.hpp"
-#include "glm/exponential.hpp"
 #include "heap_array.hpp"
 #include "math_util.hpp"
 #include "memory.hpp"
 #include "bits.hpp"
+#include "pipeline.hpp"
 #include "render_context.hpp"
 #include "sdf.hpp"
 #include "viewer.hpp"
+#include "render_graph.hpp"
 
-// Supported voxel node sizes: 1, 2, 4, 8, 16, 32, 64, etc...
-#define OCTREE_NODE_WIDTH 2
-#define MAX_SDF_RENDER_INSTANCES 1024
-// (roughly) Pixel width/height or each octree node
-#define OCTREE_NODE_SCREEN_SIZE 128
-#define OCTREE_NODE_SCALE (1.0f)
+// Pool of octree nodes
+static arena_pool<octree_node> octree_nodes_;
 
-template <typename T>
-void apply_3d(iv3 dim, T pred)
+// Pool of SDF leaf nodes
+static arena_pool<sdf_list_node> sdf_list_nodes_;
+
+// List of SDF cube nodes
+static heap_array<sdf_render_instance> sdf_render_instances_;
+static uint32_t sdf_render_instance_count_;
+
+// Max level of the octree
+static float octree_max_level_;
+
+// Root node
+static node_info root_;
+
+// Rendering pipeline state object for the cubes
+static pso sdf_raster_pso_;
+
+struct sdf_octree_debug 
 {
-  iv3 off = iv3(0);
-  for (off.z = 0; off.z < OCTREE_NODE_WIDTH; ++off.z) 
-    for (off.y = 0; off.y < OCTREE_NODE_WIDTH; ++off.y) 
-      for (off.x = 0; off.x < OCTREE_NODE_WIDTH; ++off.x) 
-        pred(off);
-}
+  v3 cube_center;
+  v3 cube_scale;
 
-v2 pos_to_pixel_coords(v2 ndc) 
+  float node_cube_width;
+  float lod_level;
+  float screen_space_level;
+  float final_level;
+
+  v3 cube_start;
+  v3 cube_end;
+  v3 count;
+} debug_;
+
+static v2 pos_to_pixel_coords_(v2 ndc)
 {
   v2 extent = v2((float)gctx->swapchain_extent.width, (float)gctx->swapchain_extent.height);
   v2 uv = (ndc + v2(1.0f)) / 2.0f;
@@ -41,35 +59,13 @@ v2 pos_to_pixel_coords(v2 ndc)
   return uv * extent;
 }
 
-v2 dir_to_pixel_coords(v2 ndc) 
+static v2 dir_to_pixel_coords_(v2 ndc)
 {
   v2 extent = v2((float)gctx->swapchain_extent.width, (float)gctx->swapchain_extent.height);
   v2 uv = ndc / 2.0f;
 
   return uv * extent;
 }
-
-union octree_info_extracter 
-{
-  // To use this, set bits to the u32 and use the members below
-  u32 bits;
-
-  struct 
-  {
-    // Does this contain any information whatsoever
-    u32 has_data : 1;
-
-    // Is this a leaf (i.e., does this contain SDF information)
-    // Otherwise, this is a node which points to another octree node
-    u32 is_leaf : 1;
-
-    // If is_leaf == 1, then this is a location into the SDF information pool
-    // If is_leaf == 0, then this is a location into the octree node pool
-    u32 loc : 30;
-  };
-};
-
-typedef u32 node_info;
 
 bool node_has_data(node_info n) 
 {
@@ -118,148 +114,6 @@ node_info create_node_info(bool has_data, bool is_leaf, u32 loc)
   return e.bits;
 }
 
-struct octree_node 
-{
-  // Nodes of the octree
-  node_info child_nodes[OCTREE_NODE_WIDTH] /* Z */
-                       [OCTREE_NODE_WIDTH] /* Y */
-                       [OCTREE_NODE_WIDTH] /* X */;
-};
-
-constexpr uint32_t invalid_sdf_id = 0xFFFFFFFF;
-
-struct sdf_list_node 
-{
-  union 
-  {
-    struct 
-    {
-      u32 count;
-      u32 sdf_ids[14];
-      u32 next;
-    } first_elem;
-
-    struct 
-    {
-      u32 sdf_ids[15];
-      u32 next;
-    } inner_elem;
-
-    u32 elements[16];
-  };
-};
-
-/* For now, just store this stuff - in future, will compact */
-struct sdf_render_instance 
-{
-  v3 wposition;
-  u32 sdf_list_node_idx;
-  u32 level; // Enforces the scale of the cube
-};
-
-/* Used to make all sdf/node allocations - simple and dumb */
-template <typename T>
-class arena_pool 
-{
-public:
-  arena_pool() = default;
-
-  arena_pool(u32 size) 
-  : pool_size_(size) {
-    pool_size_ = size;
-    pool_ = mem_allocv<T>(size);
-    memset(pool_, 0, sizeof(T) * size);
-    first_free_ = nullptr;
-    reached_ = 0;
-  }
-
-  // This will also zero initialize the data that we are allocating
-  T *alloc() 
-  {
-    if (first_free_) 
-    {
-      T *new_free_node = first_free_;
-      memset(new_free_node, 0, sizeof(T));
-
-      first_free_ = next(first_free_);
-      return new_free_node;
-    }
-    else 
-    {
-      assert(reached_ < pool_size_);
-      memset(&pool_[reached_], 0, sizeof(T));
-      return &pool_[reached_++];
-    }
-  }
-
-  void clear() 
-  {
-    reached_ = 0;
-    first_free_ = nullptr;
-  }
-
-  u32 get_node_idx(T *node) 
-  {
-    return node - pool_;
-  }
-
-  T *get_node(u32 idx) 
-  {
-    return &pool_[idx];
-  }
-
-  void free(T *node) 
-  {
-    next(node) = first_free_;
-    first_free_ = node;
-  }
-
-  T *&next(T *node) 
-  {
-    return *(T **)node;
-  }
-
-private:
-  T *pool_;
-  T *first_free_;
-
-  // Which node have we reached
-  u32 reached_;
-  // How many nodes are there
-  u32 pool_size_;
-};
-
-// Pool of octree nodes
-static arena_pool<octree_node> octree_nodes_;
-
-// Pool of SDF leaf nodes
-static arena_pool<sdf_list_node> sdf_list_nodes_;
-
-// List of SDF cube nodes
-static heap_array<sdf_render_instance> sdf_render_instances_;
-static uint32_t sdf_render_instance_count_;
-
-// Max level of the octree
-static float octree_max_level_;
-
-// Root node
-static node_info root_;
-
-struct sdf_octree_debug 
-{
-  v3 cube_center;
-  v3 cube_scale;
-
-  float node_cube_width;
-  float lod_level;
-  float screen_space_level;
-  float final_level;
-
-  v3 cube_start;
-  v3 cube_end;
-  v3 count;
-} debug_;
-
 static void sdf_octree_gen_debug_proc_() 
 {
   viewer_desc &viewer = ggfx->viewer;
@@ -273,6 +127,18 @@ static void sdf_octree_gen_debug_proc_()
   ImGui::Text("Cube Start: %f %f %f", debug_.cube_start.x, debug_.cube_start.y, debug_.cube_start.z);
   ImGui::Text("Cube End: %f %f %f", debug_.cube_end.x, debug_.cube_end.y, debug_.cube_end.z);
   ImGui::Text("SDF Render Instance Count: %d", sdf_render_instance_count_);
+
+#if 0
+  ImGui::Separator();
+
+  // Display render instance information
+  for (int i = 0; i < sdf_render_instance_count_; ++i)
+  {
+    sdf_render_instance &inst = sdf_render_instances_[i];
+    ImGui::BulletText("SDFI %d: p(%d %d %d), l(%d)", i, 
+      (int)inst.wposition.x, (int)inst.wposition.y, (int)inst.wposition.z, (int)inst.level);
+  }
+#endif
 }
 
 // Get level if we only considered the LOD (distance from camera)
@@ -331,7 +197,7 @@ static float find_sdf_unit_level_screen_size_(const sdf_unit &u)
   }
 
   v2 rng = v2(ss_high.x - ss_low.x, ss_high.y - ss_low.y);
-  v2 px_rng = dir_to_pixel_coords(rng);
+  v2 px_rng = dir_to_pixel_coords_(rng);
 
   float level = 0.0f;
 
@@ -456,7 +322,7 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value)
     v3 offset = pos - level_start_pos;
 
     assert(offset.x >= 0.0f && offset.y >= 0.0f && offset.z >= 0.0f &&
-        offset.x < node_size && offset.y < node_size && offset.z < node_size);
+      offset.x < node_size && offset.y < node_size && offset.z < node_size);
 
     offset /= child_node_size;
 
@@ -464,7 +330,7 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value)
     iv3 child_idx = iv3(glm::floor(offset));
 
     assert(child_idx.x >= 0 && child_idx.y >= 0 && child_idx.z >= 0 &&
-        child_idx.x < OCTREE_NODE_WIDTH && child_idx.y < OCTREE_NODE_WIDTH && child_idx.z < OCTREE_NODE_WIDTH);
+      child_idx.x < OCTREE_NODE_WIDTH && child_idx.y < OCTREE_NODE_WIDTH && child_idx.z < OCTREE_NODE_WIDTH);
 
     center = level_start_pos + v3(child_idx) * child_node_size + v3(child_node_size/2.0f);
 
@@ -490,10 +356,12 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value)
       v3 start_pos = center - v3(child_node_size);
 
       // Every time we create a new leaf node, we need to push it to the render instances array
-      sdf_render_instance inst = {
+      sdf_render_instance inst = 
+      {
         .level = (u32)final_level,
         .sdf_list_node_idx = node_loc(*current_node),
-        .wposition = start_pos
+        .wposition = start_pos,
+        .dump0 = -42.0f
       };
 
       sdf_render_instances_[sdf_render_instance_count_++] = inst;
@@ -508,7 +376,7 @@ void insert_sdf_node_into_octree(float level, v3 pos, u32 value)
 }
 
 // Add an SDF unit to the octree
-void add_sdf_unit(const sdf_unit &u, u32 u_id) 
+void add_sdf_unit(const sdf_unit &u, u32 u_id)
 {
   v3 scale = v3(u.scale) + v3(0.1f);
   v3 low = v3(u.position) - scale;
@@ -546,9 +414,9 @@ void add_sdf_unit(const sdf_unit &u, u32 u_id)
   }
 }
 
-static void add_cube_outline_(v3 low, v3 high) 
+static void add_cube_outline_(v3 low, v3 high, bool is_leaf) 
 {
-  v4 color = v4(1.0f, 0.0f, 0.0f, 1.0f);
+  v4 color = is_leaf ? v4(0.0f, 1.0f, 0.0f, 1.0f) : v4(1.0f, 0.0f, 0.0f, 0.2f);
 
   v3 rng = high - low;
 
@@ -618,7 +486,7 @@ static void dbg_add_octree_lines_(node_info *node, v3 center, float level)
   v3 level_start_pos = center - v3(child_node_size);
   v3 level_end_pos = center + v3(child_node_size);
 
-  add_cube_outline_(level_start_pos, level_end_pos);
+  add_cube_outline_(level_start_pos, level_end_pos, is_node_leaf(*node));
 
   if (node_has_data(*node) && !is_node_leaf(*node)) 
   {
@@ -637,7 +505,7 @@ static void dbg_add_octree_lines_(node_info *node, v3 center, float level)
 }
 
 // Also register the buffers that will be used
-void init_sdf_octree(render_graph &graph) 
+void init_sdf_octree(render_graph &graph, u32 max_sdf_units)
 {
   // Initialize octree information
   octree_max_level_ = 8.0f;
@@ -648,15 +516,39 @@ void init_sdf_octree(render_graph &graph)
   sdf_list_nodes_ = arena_pool<sdf_list_node>(1024);
   sdf_render_instances_ = heap_array<sdf_render_instance>(MAX_SDF_RENDER_INSTANCES);
   
-  // Rendering
+  // Rendering - SDF Render Instances, List Nodes, and SDF Unit data
+  graph.register_buffer(RES("sdf-instances"))
+    .configure({ .size = sizeof(sdf_render_instance) * MAX_SDF_RENDER_INSTANCES, binding::type::storage_buffer });
 
+  graph.register_buffer(RES("sdf-units")) // This should become storage buffer
+    .configure({ .size = (u32)sizeof(sdf_unit) *  max_sdf_units, binding::type::uniform_buffer });
+
+  graph.register_buffer(RES("sdf-add-buffer"))
+    .configure({ .size = max_sdf_units * (u32)sizeof(u32) });
+
+  graph.register_buffer(RES("sdf-sub-buffer"))
+    .configure({ .size = max_sdf_units * (u32)sizeof(u32) });
+
+  graph.register_buffer(RES("sdf-info-buffer"))
+    .configure({ .size = sizeof(sdf_info) });
+
+  // Create rendering pipeline
+  pso_config cube_raster_config("voxel_node.vert.spv", "voxel_node.frag.spv");
+  cube_raster_config.add_color_attachment(gctx->swapchain_format);
+  cube_raster_config.add_depth_attachment(gctx->depth_format);
+  cube_raster_config.configure_layouts(0,
+    pso_descriptor{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
+    pso_descriptor{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
+    pso_descriptor{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
+
+  sdf_raster_pso_ = pso(cube_raster_config);
 
   // Debugging
   register_debug_overlay_client("SDF Octree Gen", sdf_octree_gen_debug_proc_, true);
 }
 
 // Clears all the arena allocators and reinitializes the root node
-void clear_sdf_octree() 
+void clear_sdf_octree()
 {
   octree_nodes_.clear();
   sdf_list_nodes_.clear();
@@ -665,7 +557,7 @@ void clear_sdf_octree()
   sdf_render_instance_count_ = 0;
 }
 
-void update_sdf_octree() 
+void update_sdf_octree_and_render(render_graph &graph)
 {
   for (int i = 0; i < ggfx->units_info.unit_count; ++i) 
   {
@@ -674,4 +566,72 @@ void update_sdf_octree()
   }
 
   dbg_add_octree_lines_(&root_, v3(0.0f), octree_max_level_);
+
+  { // Update GPU-side buffers
+    graph.add_buffer_update(RES("sdf-instances"), 
+      sdf_render_instances_.data(), 0,  // Only update the parts whcih changed
+      sizeof(sdf_render_instance) * sdf_render_instance_count_);
+
+    graph.add_buffer_update(RES("sdf-units"),
+      ggfx->units_arrays.units);
+
+    // We still want to be able to visualize the SDFs with the dumb SDF caster
+    graph.add_buffer_update(RES("sdf-info-buffer"), &ggfx->units_info);
+    graph.add_buffer_update(RES("sdf-add-buffer"), ggfx->units_arrays.add_units);
+    graph.add_buffer_update(RES("sdf-sub-buffer"), ggfx->units_arrays.sub_units);
+  }
+
+  if (ggfx->vis_type == visualizer_type::raster_visualizer)
+  { // Dispatch the render pass
+    graph.add_render_pass(STG("sdf-rasterizer"))
+      .add_color_attachment(RES("sdf-cast-target"), {0.0f, 0.0f, 0.0f, 0.0f})
+      .add_depth_attachment(RES("sdf-cast-depth-map"), {1.0f})
+      .prepare_commands([] (render_pass::prepare_package package)
+      {
+        auto tracker = package.graph->get_resource_tracker();
+
+        tracker.prepare_buffer_for(RES("sdf-instances"),
+          binding::type::storage_buffer, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+
+        tracker.prepare_buffer_for(RES("sdf-units"),
+          binding::type::uniform_buffer, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+
+        tracker.prepare_buffer_for(RES("viewer-buffer"),
+          binding::type::uniform_buffer, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+      }, nullptr)
+      .draw_commands([] (render_pass::draw_package package)
+      {
+        auto tracker = package.graph->get_resource_tracker();
+
+        // Get needed descriptor sets
+        VkDescriptorSet instances_set = tracker.get_buffer(RES("sdf-instances"))
+          .descriptor(binding::type::storage_buffer);
+        VkDescriptorSet units_set = tracker.get_buffer(RES("sdf-units"))
+          .descriptor(binding::type::uniform_buffer);
+        VkDescriptorSet viewer_set = tracker.get_buffer(RES("viewer-buffer"))
+          .descriptor(binding::type::uniform_buffer);
+
+        // Rasterize the cubes
+        sdf_raster_pso_.bind(package.cmdbuf);
+        sdf_raster_pso_.bind_descriptors(package.cmdbuf, instances_set, units_set, viewer_set);
+        vkCmdDraw(package.cmdbuf, 36, sdf_render_instance_count_, 0, 0);
+      }, nullptr);
+  }
+  else if (ggfx->vis_type == visualizer_type::caster_visualizer)
+  {
+    auto &pass = graph.add_compute_pass(STG("sdf-cast-pass"));
+    pass.set_source("sdf_cast");
+    pass.add_storage_image(RES("sdf-cast-target"));
+    pass.add_uniform_buffer(RES("time-buffer"));
+    pass.add_uniform_buffer(RES("sdf-info-buffer"));
+    pass.add_uniform_buffer(RES("sdf-units"));
+    pass.add_uniform_buffer(RES("sdf-add-buffer"));
+    pass.add_uniform_buffer(RES("sdf-sub-buffer"));
+    pass.add_uniform_buffer(RES("viewer-buffer"));
+    pass.dispatch_waves(16, 16, 1, RES("sdf-cast-target"));
+  }
+  else
+  {
+    assert(false);
+  }
 }

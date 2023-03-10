@@ -8,24 +8,35 @@
 
 #include <vulkan/vulkan.h>
 
-// All renderer resources (textures, uniforms, pipelines, etc...)
+/* Allow for easy switching between the dumb SDF caster and rasterizer visualizers */
+enum visualizer_type
+{
+  caster_visualizer,
+  raster_visualizer
+};
+
+/* All renderer resources (textures, uniforms, pipelines, etc...) */
 extern struct graphics_resources 
 {
-  // Current viewer - perhaps some system will determine which agent to bind this to
+  /* Current viewer - perhaps some system will determine which agent to bind this to */
   viewer_desc viewer;
   float viewer_speed;
 
-  // All SDF information
+  /* All SDF information */
   sdf_info units_info;
   sdf_arrays units_arrays;
   sdf_debug units_debug;
+
+  /* Visualizer type */
+  visualizer_type vis_type;
 } *ggfx;
 
+/* Initialize all rendering systems - SDFs, post processing, etc... */
 void init_core_render();
-void run_render();
 
-// To use whenever referring to a string that relates to a rendering resource
-extern uint32_t gres_name_id_counter;
-#define rdg(x) (uid_string{     \
-  x, sizeof(x),               \
-  get_id<crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF>(gres_name_id_counter)})
+/* Run the entire rendering pipeline:
+ * - Generate octree on GPU
+ * - Rasterize cubes and perform SDF traces within the cubes
+ * - Perform lighting
+ * - Post processing */
+void run_render();

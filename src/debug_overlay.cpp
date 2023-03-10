@@ -115,15 +115,13 @@ void render_debug_overlay(VkCommandBuffer cmdbuf, graph_resource_tracker &tracke
     dbg_line_pso_.bind(cmdbuf);
 
     // Bind viewer uniform buffer
-    vkCmdBindDescriptorSets(
-        cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        dbg_line_pso_.pso_layout(), 0, 1, &viewer_set, 0, nullptr);
+    dbg_line_pso_.bind_descriptors(cmdbuf, viewer_set);
 
     for (auto &line : lines_) 
     {
       // Push line information
       vkCmdPushConstants(cmdbuf, dbg_line_pso_.pso_layout(), VK_SHADER_STAGE_ALL,
-          0, sizeof(line), &line);
+        0, sizeof(line), &line);
 
       vkCmdDraw(cmdbuf, 2, 1, 0, 0);
     }

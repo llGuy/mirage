@@ -26,9 +26,12 @@ struct sdf_unit
 
 struct sdf_render_instance
 {
-  vec3 wposition;
-  uint level;
+  vec4 wposition;
+
   uint sdf_list_node_idx;
+  uint level;
+
+  uint dump1, dump2;
 };
 
 #endif

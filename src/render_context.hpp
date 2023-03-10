@@ -26,6 +26,7 @@ extern struct render_context
   VkDevice device;
   s32 graphics_family, present_family;
   VkQueue graphics_queue, present_queue;
+  VkFormat depth_format;
 
   // Window / Surface
   GLFWwindow *window;

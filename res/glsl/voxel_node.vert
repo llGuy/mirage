@@ -1,4 +1,4 @@
-/* The way the SDF get rendered (just visibility) is as follows:
+/* The way the SDFs get rendered (just visibility) is as follows:
  * - We put all the SDF render instances in a vertex buffer where
  *   each instance corresponds to an actual "instance" in vkCmdDraw
  * - They get read into this shader which uses that SDF render instance
@@ -17,12 +17,19 @@
 layout (location = 0) flat out uint out_sdf_list_node;
 
 // Get vertex information from here
-layout (set = 0, binding = 0, scalar) readonly buffer sdf_render_instances
+layout (set = 0, binding = 0) readonly buffer sdf_render_instances
 {
   sdf_render_instance data[];
 } usdf_instances;
 
-layout (set = 1, binding = 0) uniform viewer_data 
+// Holds information about each SDF unit
+layout (set = 1, binding = 0) uniform sdf_units
+{
+  sdf_unit data[];
+} usdf_units;
+
+// Camera
+layout (set = 2, binding = 0) uniform viewer_data 
 {
   viewer_desc data;
 } uviewer;
@@ -71,10 +78,12 @@ void main()
 
   // Transform the vertices to world space
   sdf_render_instance inst = usdf_instances.data[gl_InstanceIndex];
-  float scale = exp2(inst.level);
-  vtx = inst.wposition + scale * vtx;
+  float scale = exp2(float(inst.level));
+  vtx = inst.wposition.xyz + scale * vtx;
 
   // Finalize
-  gl_Position = uviewer.data.view_projection * vec4(vtx, 1.0);
+  gl_Position = uviewer.data.projection * uviewer.data.view * vec4(vtx, 1.0);
+  gl_Position.y *= -1.0f;
+
   out_sdf_list_node = inst.sdf_list_node_idx;
 }

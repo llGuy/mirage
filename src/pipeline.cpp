@@ -317,3 +317,8 @@ void pso::bind(VkCommandBuffer cmdbuf)
 {
   vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
 }
+
+void pso::bind_descriptors_(VkCommandBuffer cmdbuf, VkDescriptorSet *sets, u32 count)
+{
+  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, count, sets, 0, nullptr);
+}

@@ -128,10 +128,20 @@ public:
   void bind(VkCommandBuffer cmdbuf);
   void push_constant(void *data, uint32_t size);
 
+  template <typename ...T>
+  void bind_descriptors(VkCommandBuffer cmdbuf, T ...t_sets)
+  {
+    VkDescriptorSet sets[] = { t_sets... };
+    bind_descriptors_(cmdbuf, sets, sizeof...(T));
+  }
+
   inline VkPipelineLayout pso_layout() 
   {
     return layout_;
   }
+
+private:
+  void bind_descriptors_(VkCommandBuffer cmdbuf, VkDescriptorSet *sets, u32 count);
 
 private:
   VkPipeline pipeline_;

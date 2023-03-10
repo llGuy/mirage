@@ -36,11 +36,11 @@ std::string make_shader_src_path(const char *path, VkShaderStageFlags stage)
 /************************* Render Pass ****************************/
 // TODO:
 render_pass::render_pass(render_graph *builder, const uid_string &uid) 
-  : builder_(builder), uid_(uid), depth_index_(-1) 
+  : builder_(builder), uid_(uid), depth_index_(-1), rect_{}, prepare_commands_proc_(nullptr)
 {
 }
 
-void render_pass::add_color_attachment(const uid_string &uid, clear_color color, const image_info &info) 
+render_pass &render_pass::add_color_attachment(const uid_string &uid, clear_color color, const image_info &info) 
 {
   uint32_t binding_id = bindings_.size();
 
@@ -50,11 +50,16 @@ void render_pass::add_color_attachment(const uid_string &uid, clear_color color,
   // Get image will allocate space for the image struct if it hasn't been created yet
   gpu_image &img = builder_->get_image_(uid.id);
   img.add_usage_node_(uid_.id, binding_id);
+  img.configure(info);
+
+  return *this;
 }
 
-void render_pass::add_depth_attachment(const uid_string &uid, clear_color color, const image_info &info) 
+render_pass &render_pass::add_depth_attachment(const uid_string &uid, clear_color color, const image_info &info) 
 {
   uint32_t binding_id = bindings_.size();
+
+  depth_index_ = binding_id;
 
   binding b = { (uint32_t)bindings_.size(), binding::type::depth_attachment, uid.id, color };
   bindings_.push_back(b);
@@ -62,11 +67,19 @@ void render_pass::add_depth_attachment(const uid_string &uid, clear_color color,
   // Get image will allocate space for the image struct if it hasn't been created yet
   gpu_image &img = builder_->get_image_(uid.id);
   img.add_usage_node_(uid_.id, binding_id);
+
+  image_info info_tmp = info;
+  info_tmp.is_depth = true;
+
+  img.configure(info_tmp);
+
+  return *this;
 }
 
-void render_pass::set_render_area(VkRect2D rect) 
+render_pass &render_pass::set_render_area(VkRect2D rect) 
 {
   rect_ = rect;
+  return *this;
 }
 
 void render_pass::reset_() 
@@ -74,10 +87,14 @@ void render_pass::reset_()
   bindings_.clear();
   depth_index_ = -1;
   rect_ = {};
+  prepare_commands_proc_ = nullptr;
 }
 
 void render_pass::issue_commands_(VkCommandBuffer cmdbuf) 
 {
+  if (prepare_commands_proc_)
+    prepare_commands_proc_({ cmdbuf, builder_, prepare_commands_aux_ });
+
   uint32_t color_attachment_count = (uint32_t)(bindings_.size() - (depth_index_ == -1 ? 0 : 1));
 
   auto *color_attachments = bump_mem_alloc<VkRenderingAttachmentInfoKHR>(color_attachment_count);
@@ -212,6 +229,14 @@ void render_pass::draw_commands_(draw_commands_proc draw_proc, void *aux)
 {
   draw_commands_proc_ = draw_proc;
   draw_commands_aux_ = aux;
+}
+
+render_pass &render_pass::prepare_commands(prepare_commands_proc prepare_proc, void *aux)
+{
+  prepare_commands_proc_ = prepare_proc;
+  prepare_commands_aux_ = aux;
+
+  return *this;
 }
 
 
@@ -701,8 +726,7 @@ gpu_image &gpu_image::configure(const image_info &info)
     if (aspect_ == VK_IMAGE_ASPECT_DEPTH_BIT) 
     {
       // Get default depth format
-      log_error("Need to setup default depth format!!!");
-      assert(false);
+      format_ = gctx->depth_format;
     }
     else 
     {

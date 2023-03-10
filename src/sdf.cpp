@@ -9,7 +9,7 @@
 
 static constexpr u32 max_sdf_unit_data_size_() 
 {
-  return sizeof(u32) + 2 * max_sdf_unit_count * sizeof(sdf_unit);
+  return sizeof(u32) + 2 * MAX_SDF_UNIT_COUNT * sizeof(sdf_unit);
 }
 
 static u32 add_manipulator_(const sdf_unit &u, u32 i, sdf_debug *debug) 
@@ -116,9 +116,9 @@ void init_sdf_units(render_graph &graph)
   sdf_arrays *arrays = &ggfx->units_arrays;
   sdf_debug *debug = &ggfx->units_debug;
 
-  arrays->units = mem_allocv<sdf_unit>(max_sdf_unit_count);
-  arrays->add_units = mem_allocv<u32>(max_sdf_unit_count);
-  arrays->sub_units = mem_allocv<u32>(max_sdf_unit_count);
+  arrays->units = mem_allocv<sdf_unit>(MAX_SDF_UNIT_COUNT);
+  arrays->add_units = mem_allocv<u32>(MAX_SDF_UNIT_COUNT);
+  arrays->sub_units = mem_allocv<u32>(MAX_SDF_UNIT_COUNT);
   info->add_unit_count = 0;
   info->sub_unit_count = 0;
   info->unit_count = 0;
@@ -149,21 +149,9 @@ void init_sdf_units(render_graph &graph)
   }, info, arrays, debug);
 #endif
 
-  graph.register_buffer(RES("sdf-units-buffer"))
-    .configure({ .size = max_sdf_unit_count * sizeof(sdf_unit) });
-
-  graph.register_buffer(RES("sdf-add-buffer"))
-    .configure({ .size = max_sdf_unit_count * sizeof(u32) });
-
-  graph.register_buffer(RES("sdf-sub-buffer"))
-    .configure({ .size = max_sdf_unit_count * sizeof(u32) });
-
-  graph.register_buffer(RES("sdf-info-buffer"))
-    .configure({ .size = sizeof(sdf_info) });
-
   register_debug_overlay_client("SDF Units", sdf_manipulator_, true);
 
-  init_sdf_octree(graph);
+  init_sdf_octree(graph, MAX_SDF_UNIT_COUNT);
 }
 
 void update_sdf_units() 
@@ -182,13 +170,10 @@ void update_sdf_units()
 #endif
 
   clear_sdf_octree();
-  update_sdf_octree();
 }
 
 void render_sdf(render_graph &graph)
 {
-  graph.add_buffer_update(RES("sdf-info-buffer"), &ggfx->units_info);
-  graph.add_buffer_update(RES("sdf-units-buffer"), ggfx->units_arrays.units);
-  graph.add_buffer_update(RES("sdf-add-buffer"), ggfx->units_arrays.add_units);
-  graph.add_buffer_update(RES("sdf-sub-buffer"), ggfx->units_arrays.sub_units);
+  // Update the SDF octree data structures
+  update_sdf_octree_and_render(graph);
 }

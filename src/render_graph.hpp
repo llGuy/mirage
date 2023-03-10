@@ -205,18 +205,18 @@ public:
   ~render_pass() = default;
 
   // By default, the render pass won't clear the target
-  void add_color_attachment(
+  render_pass &add_color_attachment(
     const uid_string &uid, 
     clear_color color = {-1.0f}, 
     const image_info &info = {});
 
-  void add_depth_attachment(
+  render_pass &add_depth_attachment(
     const uid_string &uid,
     clear_color color = {-1.0f}, 
     const image_info &info = {});
 
   // If this isn't set, it just inherits from first binding
-  void set_render_area(VkRect2D rect);
+  render_pass &set_render_area(VkRect2D rect);
 
   struct draw_package 
   {
@@ -226,17 +226,26 @@ public:
     void *user_ptr;
   };
 
-  using draw_commands_proc = void(*)(draw_package package);
+  struct prepare_package
+  {
+    VkCommandBuffer cmdbuf;
+    render_graph *graph;
+    void *user_ptr;
+  };
 
-  void draw_commands(draw_commands_proc draw_proc, void *aux) 
+  using draw_commands_proc = void(*)(draw_package package);
+  using prepare_commands_proc = void(*)(prepare_package package);
+
+  render_pass &prepare_commands(prepare_commands_proc prepare_proc, void *aux);
+
+  inline render_pass &draw_commands(draw_commands_proc draw_proc, void *aux) 
   {
     draw_commands_(draw_proc, aux);
+    return *this;
   }
 
 private:
   void reset_();
-
-  void draw_commands();
 
   void issue_commands_(VkCommandBuffer cmdbuf);
 
@@ -254,7 +263,10 @@ private:
   VkRect2D rect_;
 
   draw_commands_proc draw_commands_proc_;
+  prepare_commands_proc prepare_commands_proc_;
+
   void *draw_commands_aux_;
+  void *prepare_commands_aux_;
 
   friend class render_graph;
   friend class graph_pass;

@@ -12,8 +12,11 @@
 #include "vulkan/vulkan_core.h"
 #include "glm/trigonometric.hpp"
 
+/* Global structure with all graphics resources */
 graphics_resources *ggfx;
 
+/* Render graph which is used throughout the rendering process
+ * (could make global but whatever) */
 static render_graph *graph_;
 
 void init_core_render() 
@@ -28,6 +31,8 @@ void init_core_render()
     .image_views = gctx->image_views.data(),
     .extent = gctx->swapchain_extent
   });
+
+  ggfx->vis_type = visualizer_type::caster_visualizer;
 
   init_sdf_units(*graph_);
   init_debug_overlay();
@@ -45,7 +50,7 @@ void init_core_render()
 
   // Register viewer uniform buffer
   graph_->register_buffer(RES("viewer-buffer"))
-    .configure({ .size = sizeof(viewer_desc) });
+    .configure({ .size = sizeof(viewer_desc), binding::type::uniform_buffer });
 
   // Register debug overlay
   register_debug_overlay_client("Frame Information", [] ()
@@ -57,6 +62,9 @@ void init_core_render()
   // Register viewer debug overlay
   register_debug_overlay_client("Viewer", [] ()
   {
+    const char *vis_names[] = { "Caster", "Raster" };
+    ImGui::Combo("Visualizer", (int *)&ggfx->vis_type, vis_names, 2);
+
     ImGui::Text("Position: %.1f %.1f %.1f", 
       ggfx->viewer.wposition.x, ggfx->viewer.wposition.y, ggfx->viewer.wposition.z);
 
@@ -84,20 +92,9 @@ void run_render()
 
   // Update SDF stuff
   update_sdf_units();
-  render_sdf(*graph_);
 
-  { // Cast rays to SDF units
-    auto &pass = graph_->add_compute_pass(STG("sdf-cast-pass"));
-    pass.set_source("sdf_cast");
-    pass.add_storage_image(RES("sdf-cast-target"));
-    pass.add_uniform_buffer(RES("time-buffer"));
-    pass.add_uniform_buffer(RES("sdf-info-buffer"));
-    pass.add_uniform_buffer(RES("sdf-units-buffer"));
-    pass.add_uniform_buffer(RES("sdf-add-buffer"));
-    pass.add_uniform_buffer(RES("sdf-sub-buffer"));
-    pass.add_uniform_buffer(RES("viewer-buffer"));
-    pass.dispatch_waves(16, 16, 1, RES("sdf-cast-target"));
-  }
+  // Issues a render pass to rasterize the cubes
+  render_sdf(*graph_);
 
   { // Render debug overlay information
     auto &pass = graph_->add_render_pass(STG("debug-overlay"));
