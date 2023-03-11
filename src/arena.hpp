@@ -48,11 +48,12 @@ public:
     reached_ = 0;
     first_free_ = nullptr;
   }
-
+  
   // Access / Iteration
   u32 get_node_idx(T *node) { return node - pool_; }
   T *get_node(u32 idx) { return &pool_[idx]; }
   T *&next(T *node) { return *(T **)node; }
+  u32 size() { return reached_; };
 
   T *data() { return pool_; };
 

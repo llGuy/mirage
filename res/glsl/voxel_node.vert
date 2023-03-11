@@ -15,6 +15,11 @@
 
 // Outputs just the SDF list node
 layout (location = 0) flat out uint out_sdf_list_node;
+layout (location = 1) flat out float out_node_scale;
+layout (location = 2) flat out vec3 out_node_pos;
+
+// Let hardware interpolation do the work here
+layout (location = 3) out vec3 out_wstart;
 
 // Get vertex information from here
 layout (set = 0, binding = 0) readonly buffer sdf_render_instances
@@ -22,14 +27,19 @@ layout (set = 0, binding = 0) readonly buffer sdf_render_instances
   sdf_render_instance data[];
 } usdf_instances;
 
+layout (set = 1, binding = 0) readonly buffer sdf_list_nodes
+{
+  sdf_list_node data[];
+} usdf_list_nodes;
+
 // Holds information about each SDF unit
-layout (set = 1, binding = 0) uniform sdf_units
+layout (set = 2, binding = 0) uniform sdf_units
 {
   sdf_unit data[];
 } usdf_units;
 
 // Camera
-layout (set = 2, binding = 0) uniform viewer_data 
+layout (set = 3, binding = 0) uniform viewer_data 
 {
   viewer_desc data;
 } uviewer;
@@ -79,11 +89,14 @@ void main()
   // Transform the vertices to world space
   sdf_render_instance inst = usdf_instances.data[gl_InstanceIndex];
   float scale = exp2(float(inst.level));
-  vtx = inst.wposition.xyz + scale * vtx;
+  vtx = inst.wposition.xyz + scale * vtx; // World space position
 
   // Finalize
   gl_Position = uviewer.data.projection * uviewer.data.view * vec4(vtx, 1.0);
   gl_Position.y *= -1.0f;
 
   out_sdf_list_node = inst.sdf_list_node_idx;
+  out_node_scale = scale;
+  out_node_pos = inst.wposition.xyz;
+  out_wstart = vtx;
 }

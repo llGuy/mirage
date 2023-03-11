@@ -128,17 +128,14 @@ static void sdf_octree_gen_debug_proc_()
   ImGui::Text("Cube End: %f %f %f", debug_.cube_end.x, debug_.cube_end.y, debug_.cube_end.z);
   ImGui::Text("SDF Render Instance Count: %d", sdf_render_instance_count_);
 
-#if 0
   ImGui::Separator();
 
   // Display render instance information
-  for (int i = 0; i < sdf_render_instance_count_; ++i)
+  for (int i = 0; i < sdf_list_nodes_.size(); ++i)
   {
-    sdf_render_instance &inst = sdf_render_instances_[i];
-    ImGui::BulletText("SDFI %d: p(%d %d %d), l(%d)", i, 
-      (int)inst.wposition.x, (int)inst.wposition.y, (int)inst.wposition.z, (int)inst.level);
+    sdf_list_node *node = sdf_list_nodes_.get_node(i);
+    ImGui::BulletText("Node %d has %d SDFs", i, node->first_elem.count);
   }
-#endif
 }
 
 // Get level if we only considered the LOD (distance from camera)
@@ -523,6 +520,9 @@ void init_sdf_octree(render_graph &graph, u32 max_sdf_units)
   graph.register_buffer(RES("sdf-units")) // This should become storage buffer
     .configure({ .size = (u32)sizeof(sdf_unit) *  max_sdf_units, binding::type::uniform_buffer });
 
+  graph.register_buffer(RES("sdf-list-nodes"))
+    .configure({ .size = (u32)sizeof(sdf_list_node) * 1024, binding::type::storage_buffer });
+
   graph.register_buffer(RES("sdf-add-buffer"))
     .configure({ .size = max_sdf_units * (u32)sizeof(u32) });
 
@@ -537,6 +537,7 @@ void init_sdf_octree(render_graph &graph, u32 max_sdf_units)
   cube_raster_config.add_color_attachment(gctx->swapchain_format);
   cube_raster_config.add_depth_attachment(gctx->depth_format);
   cube_raster_config.configure_layouts(0,
+    pso_descriptor{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
     pso_descriptor{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
     pso_descriptor{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
     pso_descriptor{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 });
@@ -572,8 +573,8 @@ void update_sdf_octree_and_render(render_graph &graph)
       sdf_render_instances_.data(), 0,  // Only update the parts whcih changed
       sizeof(sdf_render_instance) * sdf_render_instance_count_);
 
-    graph.add_buffer_update(RES("sdf-units"),
-      ggfx->units_arrays.units);
+    graph.add_buffer_update(RES("sdf-units"), ggfx->units_arrays.units);
+    graph.add_buffer_update(RES("sdf-list-nodes"), sdf_list_nodes_.data(), 0, sdf_list_nodes_.size());
 
     // We still want to be able to visualize the SDFs with the dumb SDF caster
     graph.add_buffer_update(RES("sdf-info-buffer"), &ggfx->units_info);
@@ -593,6 +594,9 @@ void update_sdf_octree_and_render(render_graph &graph)
         tracker.prepare_buffer_for(RES("sdf-instances"),
           binding::type::storage_buffer, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
 
+        tracker.prepare_buffer_for(RES("sdf-list-nodes"),
+          binding::type::storage_buffer, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+
         tracker.prepare_buffer_for(RES("sdf-units"),
           binding::type::uniform_buffer, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
 
@@ -606,6 +610,8 @@ void update_sdf_octree_and_render(render_graph &graph)
         // Get needed descriptor sets
         VkDescriptorSet instances_set = tracker.get_buffer(RES("sdf-instances"))
           .descriptor(binding::type::storage_buffer);
+        VkDescriptorSet list_nodes_set = tracker.get_buffer(RES("sdf-list-nodes"))
+          .descriptor(binding::type::storage_buffer);
         VkDescriptorSet units_set = tracker.get_buffer(RES("sdf-units"))
           .descriptor(binding::type::uniform_buffer);
         VkDescriptorSet viewer_set = tracker.get_buffer(RES("viewer-buffer"))
@@ -613,7 +619,7 @@ void update_sdf_octree_and_render(render_graph &graph)
 
         // Rasterize the cubes
         sdf_raster_pso_.bind(package.cmdbuf);
-        sdf_raster_pso_.bind_descriptors(package.cmdbuf, instances_set, units_set, viewer_set);
+        sdf_raster_pso_.bind_descriptors(package.cmdbuf, instances_set, list_nodes_set, units_set, viewer_set);
         vkCmdDraw(package.cmdbuf, 36, sdf_render_instance_count_, 0, 0);
       }, nullptr);
   }
