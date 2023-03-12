@@ -131,10 +131,15 @@ static void sdf_octree_gen_debug_proc_()
   ImGui::Separator();
 
   // Display render instance information
-  for (int i = 0; i < sdf_list_nodes_.size(); ++i)
+  if (ImGui::TreeNode("List Node Info"))
   {
-    sdf_list_node *node = sdf_list_nodes_.get_node(i);
-    ImGui::BulletText("Node %d has %d SDFs", i, node->first_elem.count);
+    for (int i = 0; i < sdf_list_nodes_.size(); ++i)
+    {
+      sdf_list_node *node = sdf_list_nodes_.get_node(i);
+      ImGui::BulletText("Node %d has %d SDFs", i, node->first_elem.count);
+    }
+
+    ImGui::TreePop();
   }
 }
 
@@ -574,7 +579,7 @@ void update_sdf_octree_and_render(render_graph &graph)
       sizeof(sdf_render_instance) * sdf_render_instance_count_);
 
     graph.add_buffer_update(RES("sdf-units"), ggfx->units_arrays.units);
-    graph.add_buffer_update(RES("sdf-list-nodes"), sdf_list_nodes_.data(), 0, sdf_list_nodes_.size());
+    graph.add_buffer_update(RES("sdf-list-nodes"), sdf_list_nodes_.data(), 0, sizeof(sdf_list_node) * sdf_list_nodes_.size());
 
     // We still want to be able to visualize the SDFs with the dumb SDF caster
     graph.add_buffer_update(RES("sdf-info-buffer"), &ggfx->units_info);
